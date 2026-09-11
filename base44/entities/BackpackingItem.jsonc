@@ -1,0 +1,29 @@
+{
+  "name": "BackpackingItem",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "essential",
+        "clothing",
+        "navigation",
+        "safety",
+        "food",
+        "shelter",
+        "other"
+      ],
+      "default": "essential"
+    },
+    "packed": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

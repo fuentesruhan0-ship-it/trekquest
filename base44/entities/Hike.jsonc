@@ -1,0 +1,50 @@
+{
+  "name": "Hike",
+  "type": "object",
+  "properties": {
+    "trail_name": {
+      "type": "string"
+    },
+    "mountain": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "duration_minutes": {
+      "type": "number"
+    },
+    "distance_km": {
+      "type": "number"
+    },
+    "elevation_gain_m": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "in_progress",
+        "completed"
+      ],
+      "default": "completed"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "moderate",
+        "hard",
+        "expert"
+      ],
+      "default": "moderate"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "trail_name"
+  ]
+}

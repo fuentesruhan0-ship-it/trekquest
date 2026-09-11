@@ -1,0 +1,36 @@
+{
+  "name": "PlantScan",
+  "type": "object",
+  "properties": {
+    "plant_name": {
+      "type": "string"
+    },
+    "scientific_name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "safety": {
+      "type": "string",
+      "enum": [
+        "edible",
+        "medicinal",
+        "poisonous",
+        "unknown",
+        "safe"
+      ],
+      "default": "unknown"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "scanned_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "plant_name"
+  ]
+}

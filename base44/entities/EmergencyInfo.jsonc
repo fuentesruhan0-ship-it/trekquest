@@ -1,0 +1,40 @@
+{
+  "name": "EmergencyInfo",
+  "type": "object",
+  "properties": {
+    "full_name": {
+      "type": "string"
+    },
+    "blood_type": {
+      "type": "string"
+    },
+    "date_of_birth": {
+      "type": "string",
+      "format": "date"
+    },
+    "allergies": {
+      "type": "string"
+    },
+    "medical_conditions": {
+      "type": "string"
+    },
+    "medications": {
+      "type": "string"
+    },
+    "emergency_contact_name": {
+      "type": "string"
+    },
+    "emergency_contact_phone": {
+      "type": "string"
+    },
+    "emergency_contact_relation": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "full_name"
+  ]
+}

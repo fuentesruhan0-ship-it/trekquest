@@ -1,0 +1,35 @@
+{
+  "name": "JournalEntry",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "location": {
+      "type": "string"
+    },
+    "mood": {
+      "type": "string",
+      "enum": [
+        "amazing",
+        "good",
+        "okay",
+        "tough"
+      ],
+      "default": "good"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "photo_url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}
