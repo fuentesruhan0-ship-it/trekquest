@@ -83,3 +83,8 @@
 
 .leaflet-container { background: hsl(150 18% 90%); font-family: inherit; }
 .leaflet-control-attribution { font-size: 9px; }
+
+@keyframes pulseRing {
+  0% { transform: scale(0.6); opacity: .8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}

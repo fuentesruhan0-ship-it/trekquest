@@ -7,10 +7,14 @@ import { Map as MapIcon, Locate, Route, Play, Square, Trash2, Navigation, Mounta
 
 // Fix default marker icons
 const userIcon = L.divIcon({
-  html: `<div style="width:20px;height:20px;background:#0d9488;border:3px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(13,148,136,.3)"></div>`,
+  html: `<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
+    <div style="position:absolute;inset:0;border-radius:50%;background:rgba(13,148,136,.25);animation:pulseRing 2s ease-out infinite;"></div>
+    <div style="position:absolute;inset:6px;border-radius:50%;background:rgba(13,148,136,.4);animation:pulseRing 2s ease-out infinite .5s;"></div>
+    <div style="position:relative;width:34px;height:34px;background:#0d9488;border:3px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)">🧗</div>
+  </div>`,
   className: '',
-  iconSize: [20, 20],
-  iconAnchor: [10, 10],
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
 });
 const wpIcon = L.divIcon({
   html: `<div style="width:14px;height:14px;background:#f59e0b;border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
