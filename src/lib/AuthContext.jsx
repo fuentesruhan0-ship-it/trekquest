@@ -1,139 +1,88 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
+import React, { createContext, useContext, useMemo, useState } from 'react';
+import { useUser, useClerk, useAuth as useClerkAuth } from '@clerk/react';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
-  const [authError, setAuthError] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
+  const { user: clerkUser, isLoaded: isUserLoaded, isSignedIn } = useUser();
+  const { isLoaded: isAuthLoaded } = useClerkAuth();
+  const { signOut } = useClerk();
 
-  useEffect(() => {
-    checkAppState();
-  }, []);
+  const isLoaded = Boolean(isUserLoaded && isAuthLoaded);
 
-  const checkAppState = async () => {
+  const [customProfile, setCustomProfile] = useState(() => {
     try {
-      setIsLoadingPublicSettings(true);
-      setAuthError(null);
-      
+      return JSON.parse(localStorage.getItem('trekquest_custom_profile') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  const updateProfile = async ({ full_name, photo_url }) => {
+    const updated = {
+      ...customProfile,
+      ...(full_name !== undefined ? { full_name } : {}),
+      ...(photo_url !== undefined ? { photo_url } : {})
+    };
+    setCustomProfile(updated);
+    localStorage.setItem('trekquest_custom_profile', JSON.stringify(updated));
+
+    if (clerkUser && full_name) {
       try {
-        const publicSettings = await base44.app.getPublicSettings();
-        setAppPublicSettings(publicSettings);
-        
-        // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
-          await checkUserAuth();
-        } else {
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
-          setAuthChecked(true);
+        const parts = full_name.trim().split(' ');
+        const firstName = parts[0] || '';
+        const lastName = parts.slice(1).join(' ') || '';
+        if (clerkUser.update) {
+          await clerkUser.update({ firstName, lastName });
         }
-        setIsLoadingPublicSettings(false);
-      } catch (appError) {
-        console.error('App state check failed:', appError);
-        
-        // Handle app-level errors
-        if (appError.status === 403 && appError.data?.extra_data?.reason) {
-          const reason = appError.data.extra_data.reason;
-          if (reason === 'auth_required') {
-            setAuthError({
-              type: 'auth_required',
-              message: 'Authentication required'
-            });
-          } else if (reason === 'user_not_registered') {
-            setAuthError({
-              type: 'user_not_registered',
-              message: 'User not registered for this app'
-            });
-          } else {
-            setAuthError({
-              type: reason,
-              message: appError.message
-            });
-          }
-        } else {
-          setAuthError({
-            type: 'unknown',
-            message: appError.message || 'Failed to load app'
-          });
-        }
-        setIsLoadingPublicSettings(false);
-        setIsLoadingAuth(false);
+      } catch (e) {
+        console.warn('Clerk user update notice:', e);
       }
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
-      });
-      setIsLoadingPublicSettings(false);
-      setIsLoadingAuth(false);
     }
   };
 
-  const checkUserAuth = async () => {
+  // Adapt Clerk user object to the app's standard structure
+  const user = useMemo(() => {
+    if (!clerkUser) return null;
+    return {
+      id: clerkUser.id,
+      full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
+      email: clerkUser.primaryEmailAddress?.emailAddress || '',
+      photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
+      raw: clerkUser,
+    };
+  }, [clerkUser, customProfile]);
+
+  const logout = async () => {
     try {
-      // Now check if the user is authenticated
-      setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    } catch (error) {
-      console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
-      setIsAuthenticated(false);
-      setAuthChecked(true);
-      
-      // If user auth fails, it might be an expired token
-      if (error.status === 401 || error.status === 403) {
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
-      }
-    }
-  };
-
-  const logout = (shouldRedirect = true) => {
-    setUser(null);
-    setIsAuthenticated(false);
-    
-    if (shouldRedirect) {
-      // Use the SDK's logout method which handles token cleanup and redirect
-      base44.auth.logout(window.location.href);
-    } else {
-      // Just remove the token without redirect
-      base44.auth.logout();
+      await signOut();
+      window.location.href = '/login';
+    } catch (e) {
+      console.error('Logout error:', e);
     }
   };
 
   const navigateToLogin = () => {
-    // Use the SDK's redirectToLogin method
-    base44.auth.redirectToLogin(window.location.href);
+    window.location.href = '/login';
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
-      isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      appPublicSettings,
-      authChecked,
-      logout,
-      navigateToLogin,
-      checkUserAuth,
-      checkAppState
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: Boolean(isSignedIn),
+        isLoadingAuth: !isLoaded,
+        isLoadingPublicSettings: false,
+        authError: null,
+        appPublicSettings: { id: 'trek-quest' },
+        authChecked: isLoaded,
+        logout,
+        navigateToLogin,
+        updateProfile,
+        checkUserAuth: async () => {},
+        checkAppState: async () => {},
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -146,3 +95,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

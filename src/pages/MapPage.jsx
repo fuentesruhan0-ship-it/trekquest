@@ -1,27 +1,68 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import PageHeader from '@/components/PageHeader';
-import { Map as MapIcon, Locate, Route, Play, Square, Trash2, Navigation, Mountain } from 'lucide-react';
+import {
+  Map as MapIcon, Play, Square, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
+  X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
+  UserRound, Mountain, AlertCircle, LogOut, RefreshCw
+} from 'lucide-react';
+import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
+import WeatherModal from '@/components/WeatherModal';
+import PlanRouteModal from '@/components/PlanRouteModal';
+import { useAuth } from '@/lib/AuthContext';
+import CameraPlantScanner from '@/components/CameraPlantScanner';
+import MusicMode from '@/pages/Music';
+import { base44 } from '@/api/base44Client';
 
-// Fix default marker icons
-const userIcon = L.divIcon({
-  html: `<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
-    <div style="position:absolute;inset:0;border-radius:50%;background:rgba(13,148,136,.25);animation:pulseRing 2s ease-out infinite;"></div>
-    <div style="position:absolute;inset:6px;border-radius:50%;background:rgba(13,148,136,.4);animation:pulseRing 2s ease-out infinite .5s;"></div>
-    <div style="position:relative;width:34px;height:34px;background:#0d9488;border:3px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)">🧗</div>
+// Custom Map Markers
+// Avatar icon is created dynamically inside the component via createAvatarMapIcon
+function createAvatarMapIcon(photoUrl, initial, isPinging) {
+  const size = isPinging ? 60 : 52;
+  const half = size / 2;
+  const innerSize = isPinging ? 40 : 36;
+  const pulse = isPinging
+    ? `animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite;`
+    : `animation:pulseRing 2.2s ease-out infinite;`;
+  const ringColor = isPinging ? 'rgba(16,185,129,0.55)' : 'rgba(16,185,129,0.35)';
+  const imgTag = photoUrl
+    ? `<img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none';this.nextSibling.style.display='flex';" />
+       <span style="display:none;width:100%;height:100%;border-radius:50%;background:#059669;color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`
+    : `<span style="display:flex;width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`;
+  return L.divIcon({
+    html: `<div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
+      <div style="position:absolute;inset:0;border-radius:50%;background:${ringColor};${pulse}"></div>
+      ${isPinging ? `<div style="position:absolute;inset:8px;border-radius:50%;background:rgba(16,185,129,0.25);animation:pulseRing 2.2s ease-out infinite;"></div>` : ''}
+      <div style="position:relative;width:${innerSize}px;height:${innerSize}px;border-radius:50%;overflow:hidden;border:2.5px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.55);background:#059669;display:flex;align-items:center;justify-content:center;">
+        ${imgTag}
+      </div>
+      <div style="position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid white;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.35));"></div>
+    </div>`,
+    className: '',
+    iconSize: [size, size + 7],
+    iconAnchor: [half, size + 7],
+  });
+}
+
+const startIcon = L.divIcon({
+  html: `<div style="width:28px;height:28px;background:#10b981;border:3px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,0.4)">S</div>`,
+  className: '',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14],
+});
+
+const waypointIcon = (label, isDest) => L.divIcon({
+  html: `<div style="padding:4px 8px;background:${isDest ? '#dc2626' : '#d97706'};border:2px solid white;border-radius:12px;color:white;font-weight:bold;font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;gap:4px;">
+    <span>${isDest ? '🏁' : '📍'}</span>
+    <span>${label}</span>
   </div>`,
   className: '',
-  iconSize: [44, 44],
-  iconAnchor: [22, 22],
+  iconSize: [80, 26],
+  iconAnchor: [40, 13],
 });
-const wpIcon = L.divIcon({
-  html: `<div style="width:14px;height:14px;background:#f59e0b;border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-  className: '',
-  iconSize: [14, 14],
-  iconAnchor: [7, 7],
-});
+
+const defaultCenter = [14.5995, 120.9842]; // Manila fallback
 
 function haversine(a, b) {
   const R = 6371;
@@ -39,7 +80,7 @@ function routeDistance(pts) {
   return d;
 }
 
-function Recenter({ position }) {
+function RecenterMap({ position }) {
   const map = useMap();
   useEffect(() => {
     if (position) map.flyTo(position, Math.max(map.getZoom(), 15), { duration: 0.8 });
@@ -47,200 +88,1290 @@ function Recenter({ position }) {
   return null;
 }
 
-function ClickHandler({ onClick }) {
+function MapClickHandler({ onClick }) {
   useMapEvents({ click: onClick });
+  return null;
 }
 
 export default function MapPage() {
-  const [position, setPosition] = useState(null);
-  const [heading, setHeading] = useState(0);
-  const [waypoints, setWaypoints] = useState([]);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user, logout, updateProfile } = useAuth();
+
+  const displayName = user?.full_name || 'Reiljee Shearl Calayco Fuentes';
+  const displayEmail = user?.email || 'reiljee@example.com';
+  const initialLetter = displayName.charAt(0).toUpperCase();
+
+  // Position state (Red dot)
+  const [position, setPosition] = useState(() => {
+    try {
+      const saved = localStorage.getItem('trekquest_current_coords');
+      return saved ? JSON.parse(saved) : defaultCenter;
+    } catch {
+      return defaultCenter;
+    }
+  });
+
+  // Map layer styles (Realistic Satellite as primary default)
+  const [mapStyle, setMapStyle] = useState('satellite'); // 'satellite', 'topo', 'streets'
+
+  // Route points: Start + Waypoints + Destination
+  const [customStart, setCustomStart] = useState(null);
+  const [startMode, setStartMode] = useState('gps'); // 'gps' or 'custom'
+  const [waypoints, setWaypoints] = useState([]); // [{ id, name, lat, lng, isDest }]
+  const [editingWaypoint, setEditingWaypoint] = useState(null);
+
+  // Active Hike Tracking
   const [tracking, setTracking] = useState(false);
-  const [track, setTrack] = useState([]);
-  const [startTime, setStartTime] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState(null);
-  const watchId = useRef(null);
-  const trackRef = useRef([]);
+  const [trackPath, setTrackPath] = useState([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
+  const [trailNoteText, setTrailNoteText] = useState('');
+  const [showNoteModal, setShowNoteModal] = useState(false);
 
-  // Default center: Mount Pulag, Philippines
-  const defaultCenter = [16.5878, 120.872];
+  // UI Drawer & Modals State
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showMusicModal, setShowMusicModal] = useState(false);
+  const [showCompassModal, setShowCompassModal] = useState(false);
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locatePing, setLocatePing] = useState(false);
+  const [locationToast, setLocationToast] = useState('');
 
-  useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setPosition([pos.coords.latitude, pos.coords.longitude]),
-        () => setError('Unable to get your location. Enable GPS or tap the map to plan a route.'),
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
-    } else {
-      setError('Geolocation not supported. Tap the map to plan a route.');
+  // Weather & Route bottom drawer
+  const [showWeatherDrawer, setShowWeatherDrawer] = useState(false);
+  const [showWeatherModal, setShowWeatherModal] = useState(false);
+  const [showPlanRouteModal, setShowPlanRouteModal] = useState(false);
+
+  // Compass state
+  const [compassHeading, setCompassHeading] = useState(42);
+
+
+  // Edit Profile Form
+  const [editName, setEditName] = useState(user?.full_name || 'Reiljee Shearl Calayco Fuentes');
+  const [editPhoto, setEditPhoto] = useState(user?.photo_url || '');
+
+  // Dynamic user avatar map icon — updates whenever photo or locatePing changes
+  const userMapIcon = useMemo(() => {
+    const photo = user?.photo_url || '';
+    const initial = (user?.full_name || 'H').charAt(0).toUpperCase();
+    return createAvatarMapIcon(photo, initial, locatePing);
+  }, [user?.photo_url, user?.full_name, locatePing]);
+
+  const defaultSavedRoutes = [
+    {
+      id: 'route_pulag_ambangeg',
+      name: 'Mt. Pulag Ambangeg Trail',
+      start: [16.591, 120.898],
+      waypoints: [
+        { id: 'wp_camp1', name: 'Camp 1 Ranger Station', lat: 16.594, lng: 120.902 },
+        { id: 'wp_camp2', name: 'Camp 2 Mossy Forest', lat: 16.598, lng: 120.909 },
+        { id: 'wp_summit', name: 'Grassland Summit', lat: 16.5985, lng: 120.912, isDest: true },
+      ],
+      distance: '16.5',
+      createdAt: '2026-09-20',
+    },
+    {
+      id: 'route_batulao_ridge',
+      name: 'Mt. Batulao Ridge Traverse',
+      start: [14.041, 120.801],
+      waypoints: [
+        { id: 'wp_fork', name: 'Old-New Trail Fork', lat: 14.043, lng: 120.803 },
+        { id: 'wp_peak8', name: 'Camp 8 Knife Edge', lat: 14.047, lng: 120.805 },
+        { id: 'wp_batulao_summit', name: 'Batulao Summit Peak', lat: 14.051, lng: 120.807, isDest: true },
+      ],
+      distance: '10.2',
+      createdAt: '2026-09-18',
+    },
+  ];
+
+  // Saved routes
+  const [savedRoutes, setSavedRoutes] = useState(() => {
+    try {
+      const stored = localStorage.getItem('trekquest_saved_routes');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.length > 0) return parsed;
+      }
+      localStorage.setItem('trekquest_saved_routes', JSON.stringify(defaultSavedRoutes));
+      return defaultSavedRoutes;
+    } catch {
+      return defaultSavedRoutes;
     }
-    return () => stopTracking();
-  }, []);
+  });
+  const [showSavedRoutes, setShowSavedRoutes] = useState(false);
+  const [routeNameInput, setRouteNameInput] = useState('');
+  const [showSaveRouteModal, setShowSaveRouteModal] = useState(false);
+  const [editingRoute, setEditingRoute] = useState(null);
+  const [editRouteName, setEditRouteName] = useState('');
 
+  const watchIdRef = useRef(null);
+  const timerIntervalRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
+  // Check URL parameters if arrived with ?drawer=routes or from mountain search
   useEffect(() => {
-    if (!tracking) return;
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [tracking, startTime]);
-
-  const startTracking = () => {
-    setTracking(true);
-    setStartTime(Date.now());
-    setElapsed(0);
-    setTrack([]);
-    trackRef.current = [];
-    if ('geolocation' in navigator) {
-      watchId.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const p = [pos.coords.latitude, pos.coords.longitude];
-          setPosition(p);
-          trackRef.current = [...trackRef.current, p];
-          setTrack([...trackRef.current]);
-          if (pos.coords.heading != null && !isNaN(pos.coords.heading)) setHeading(pos.coords.heading);
+    if (searchParams.get('drawer') === 'routes') {
+      setShowSavedRoutes(true);
+    }
+    const lat = parseFloat(searchParams.get('lat'));
+    const lng = parseFloat(searchParams.get('lng'));
+    const destName = searchParams.get('destName');
+    if (!isNaN(lat) && !isNaN(lng)) {
+      setWaypoints([
+        {
+          id: 'dest_peak',
+          name: destName || 'Summit Peak',
+          lat,
+          lng,
+          isDest: true,
         },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 2000 }
-      );
+      ]);
     }
-  };
+  }, [searchParams]);
 
-  const stopTracking = useCallback(() => {
-    setTracking(false);
-    if (watchId.current != null) navigator.geolocation.clearWatch(watchId.current);
-    watchId.current = null;
+  // Live Continuous High-Accuracy GPS Tracking
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const newCoords = [pos.coords.latitude, pos.coords.longitude];
+        setPosition(newCoords);
+        localStorage.setItem('trekquest_current_coords', JSON.stringify(newCoords));
+
+        if (tracking) {
+          setTrackPath((prev) => [...prev, newCoords]);
+        }
+      },
+      (err) => console.warn('GPS watch error:', err),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+    );
+
+    return () => {
+      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, [tracking]);
+
+  // Hike Timer
+  useEffect(() => {
+    if (!tracking) {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      return;
+    }
+    timerIntervalRef.current = setInterval(() => {
+      setElapsedSeconds((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timerIntervalRef.current);
+  }, [tracking]);
+
+  // Device Orientation for Digital Compass
+  useEffect(() => {
+    const handleOrientation = (e) => {
+      if (e.webkitCompassHeading) {
+        setCompassHeading(Math.round(e.webkitCompassHeading));
+      } else if (e.alpha !== null) {
+        setCompassHeading(Math.round(360 - e.alpha));
+      }
+    };
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+    return () => {
+      window.removeEventListener('deviceorientation', handleOrientation);
+    };
   }, []);
 
-  const locateMe = () => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setPosition([pos.coords.latitude, pos.coords.longitude]),
-        () => setError('Unable to get your location.'),
-        { enableHighAccuracy: true }
-      );
+  const locateUserPosition = () => {
+    if (!('geolocation' in navigator)) {
+      setLocationToast('Geolocation is not supported by your browser');
+      setTimeout(() => setLocationToast(''), 3000);
+      return;
+    }
+    setIsLocating(true);
+    setLocationToast('Locating your position…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = [pos.coords.latitude, pos.coords.longitude];
+        setPosition(coords);
+        localStorage.setItem('trekquest_current_coords', JSON.stringify(coords));
+        localStorage.removeItem('trekquest_custom_location');
+        setIsLocating(false);
+        setLocatePing(true);
+        setTimeout(() => setLocatePing(false), 6000);
+        setLocationToast(`Located! ${coords[0].toFixed(4)}°, ${coords[1].toFixed(4)}°`);
+        setTimeout(() => setLocationToast(''), 3500);
+      },
+      (err) => {
+        setIsLocating(false);
+        setLocationToast('Unable to acquire GPS fix: ' + (err.message || 'Permission denied'));
+        setTimeout(() => setLocationToast(''), 3500);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
+
+
+  const saveProfileChanges = async () => {
+    try {
+      if (updateProfile) {
+        await updateProfile({ full_name: editName, photo_url: editPhoto });
+      }
+    } catch {}
+    setShowEditProfileModal(false);
+  };
+
+  const handleMapClick = (e) => {
+    const lat = e.latlng.lat;
+    const lng = e.latlng.lng;
+
+    if (startMode === 'custom' && !customStart) {
+      setCustomStart([lat, lng]);
+      return;
+    }
+
+    // Add new waypoint or destination
+    const isFirst = waypoints.length === 0;
+    const newWp = {
+      id: `wp_${Date.now()}`,
+      name: isFirst ? 'Destination' : `Waypoint ${waypoints.length + 1}`,
+      lat,
+      lng,
+      isDest: isFirst,
+    };
+    setWaypoints((prev) => [...prev, newWp]);
+  };
+
+  const startPoint = startMode === 'custom' && customStart ? customStart : position;
+  const routePoints = [
+    startPoint,
+    ...waypoints.map((w) => [w.lat, w.lng]),
+  ].filter(Boolean);
+
+  const totalDistanceKm = routeDistance(tracking ? trackPath : routePoints);
+
+  const saveCurrentRoute = () => {
+    if (!routeNameInput.trim()) return;
+    const newRoute = {
+      id: `route_${Date.now()}`,
+      name: routeNameInput.trim(),
+      start: startPoint,
+      waypoints: [...waypoints],
+      distance: totalDistanceKm.toFixed(2),
+      createdAt: new Date().toLocaleDateString(),
+    };
+    const updated = [newRoute, ...savedRoutes];
+    setSavedRoutes(updated);
+    localStorage.setItem('trekquest_saved_routes', JSON.stringify(updated));
+    setShowSaveRouteModal(false);
+    setRouteNameInput('');
+  };
+
+  const loadSavedRoute = (route) => {
+    setWaypoints(route.waypoints || []);
+    if (route.start) {
+      setCustomStart(route.start);
+      setStartMode('custom');
+    }
+    if (route.waypoints?.[0]) {
+      setPosition([route.waypoints[0].lat, route.waypoints[0].lng]);
+    } else if (route.start) {
+      setPosition(route.start);
+    }
+    setShowSavedRoutes(false);
+  };
+
+  const deleteSavedRoute = (id) => {
+    if (window.confirm('Delete this saved route?')) {
+      const updated = savedRoutes.filter((r) => r.id !== id);
+      setSavedRoutes(updated);
+      localStorage.setItem('trekquest_saved_routes', JSON.stringify(updated));
     }
   };
 
-  const addWaypoint = (latlng) => {
-    setWaypoints((w) => [...w, [latlng.lat, latlng.lng]]);
+  const openEditRouteModal = (route, e) => {
+    if (e) e.stopPropagation();
+    setEditingRoute(route);
+    setEditRouteName(route.name);
   };
 
-  const routePts = position && waypoints.length ? [position, ...waypoints] : waypoints;
-  const totalDist = routeDistance(routePts);
-  const trackDist = routeDistance(track);
-  const activeDist = tracking ? trackDist : totalDist;
-  const speed = tracking && elapsed > 0 ? (trackDist / (elapsed / 3600)) : 0;
-  const pace = speed > 0 ? 60 / speed : 0; // min per km
-  // ETA: assume avg hiking speed 4 km/h if not tracking
-  const etaSpeed = tracking && speed > 0 ? speed : 4;
-  const etaHours = activeDist > 0 && etaSpeed > 0 ? activeDist / etaSpeed : 0;
-  const etaMin = Math.ceil(etaHours * 60);
-  const fmtTime = (s) => {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  const saveEditedRouteName = () => {
+    if (!editingRoute || !editRouteName.trim()) return;
+    const updated = savedRoutes.map((r) =>
+      r.id === editingRoute.id ? { ...r, name: editRouteName.trim() } : r
+    );
+    setSavedRoutes(updated);
+    localStorage.setItem('trekquest_saved_routes', JSON.stringify(updated));
+    setEditingRoute(null);
+  };
+
+  const editRouteOnMap = (route) => {
+    loadSavedRoute(route);
+    setEditingRoute(null);
+    setShowSavedRoutes(false);
+  };
+
+  const handlePhotoCapture = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result;
+      setCapturedPhoto({
+        url: dataUrl,
+        lat: position?.[0],
+        lng: position?.[1],
+        time: new Date().toLocaleTimeString(),
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveTrailNote = async () => {
+    if (!trailNoteText.trim()) return;
+    try {
+      await base44.entities.JournalEntry.create({
+        title: `Trail Note @ ${new Date().toLocaleTimeString()}`,
+        location: `GPS: ${position?.[0]?.toFixed(4)}, ${position?.[1]?.toFixed(4)}`,
+        notes: trailNoteText,
+        photo_url: capturedPhoto?.url || null,
+        date: new Date().toISOString().slice(0, 10),
+      });
+    } catch {}
+    setShowNoteModal(false);
+    setTrailNoteText('');
+  };
+
+  const formatTimer = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h > 0 ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   return (
-    <div className="min-h-full flex flex-col">
-      <PageHeader title="Offline Map & Route Planner" subtitle="GPS tracking • Route planning" icon={MapIcon} accent="bg-emerald-600" />
-      <div className="relative flex-1" style={{ minHeight: '55vh' }}>
+    <div className="relative h-[100dvh] w-full flex flex-col bg-slate-950 overflow-hidden">
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handlePhotoCapture}
+      />
+
+      {/* Realistic Map Component */}
+      <div className="relative flex-1 w-full h-full">
         <MapContainer
-          center={defaultCenter}
-          zoom={13}
-          className="absolute inset-0 z-0"
+          center={position || defaultCenter}
+          zoom={14}
           zoomControl={false}
+          className="w-full h-full"
         >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; OpenStreetMap'
-          />
-          <TileLayer
-            url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-            attribution='&copy; OpenTopoMap'
-          />
-          <ClickHandler onClick={(e) => addWaypoint(e.latlng)} />
+          {/* Layer 1: Realistic Satellite View (Esri World Imagery) */}
+          {mapStyle === 'satellite' && (
+            <TileLayer
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              attribution="Tiles &copy; Esri World Imagery"
+              maxZoom={19}
+            />
+          )}
+
+          {/* Layer 2: Mountain Topographic (OpenTopoMap) */}
+          {mapStyle === 'topo' && (
+            <TileLayer
+              url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+              attribution="&copy; OpenTopoMap"
+              maxZoom={17}
+            />
+          )}
+
+          {/* Layer 3: Outdoor Street/Trail (OpenStreetMap) */}
+          {mapStyle === 'streets' && (
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution="&copy; OpenStreetMap"
+              maxZoom={19}
+            />
+          )}
+
+          <MapClickHandler onClick={handleMapClick} />
+          {position && <RecenterMap position={position} />}
+
+          {/* User Live GPS Marker (Red Dot) */}
           {position && (
-            <>
-              <Marker position={position} icon={userIcon}>
-                <Popup>You are here</Popup>
-              </Marker>
-              <Recenter position={position} />
-            </>
-          )}
-          {waypoints.map((w, i) => (
-            <Marker key={i} position={w} icon={wpIcon}>
-              <Popup>Waypoint {i + 1}</Popup>
+            <Marker position={position} icon={userMapIcon}>
+              <Popup>
+                <div className="text-xs font-semibold">
+                  <p className="text-red-600 font-bold">You are here</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    {position[0].toFixed(5)}, {position[1].toFixed(5)}
+                  </p>
+                </div>
+              </Popup>
             </Marker>
-          ))}
-          {routePts.length > 1 && (
-            <Polyline positions={routePts} pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.8, dashArray: '8 6' }} />
           )}
-          {track.length > 1 && (
-            <Polyline positions={track} pathOptions={{ color: '#0d9488', weight: 4, opacity: 0.9 }} />
+
+          {/* Custom Starting Point Marker */}
+          {startMode === 'custom' && customStart && (
+            <Marker position={customStart} icon={startIcon}>
+              <Popup>
+                <div className="text-xs font-bold text-emerald-700">Custom Starting Point</div>
+              </Popup>
+            </Marker>
+          )}
+
+          {/* Waypoints & Destination (Tappable & Editable) */}
+          {waypoints.map((wp) => (
+            <Marker
+              key={wp.id}
+              position={[wp.lat, wp.lng]}
+              icon={waypointIcon(wp.name, wp.isDest)}
+              eventHandlers={{
+                click: () => setEditingWaypoint(wp),
+              }}
+            />
+          ))}
+
+          {/* Planned Route Line */}
+          {routePoints.length >= 2 && (
+            <Polyline
+              positions={routePoints}
+              pathOptions={{
+                color: mapStyle === 'satellite' ? '#38bdf8' : '#0284c7',
+                weight: 4,
+                dashArray: '8, 8',
+                opacity: 0.9,
+              }}
+            />
+          )}
+
+          {/* Active Hike Walked Track */}
+          {trackPath.length >= 2 && (
+            <Polyline
+              positions={trackPath}
+              pathOptions={{
+                color: '#ef4444',
+                weight: 5,
+                opacity: 0.95,
+              }}
+            />
           )}
         </MapContainer>
 
-        {/* Top-right controls */}
-        <div className="absolute top-3 right-3 z-[500] flex flex-col gap-2">
-          <button onClick={locateMe} className="w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center text-emerald-700 active:scale-90 transition" aria-label="Locate me">
-            <Locate size={18} />
-          </button>
-          <button onClick={() => setWaypoints([])} className="w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center text-red-600 active:scale-90 transition" aria-label="Clear route">
-            <Trash2 size={18} />
-          </button>
-        </div>
-
-        {/* Hint */}
-        <div className="absolute top-3 left-3 z-[500] bg-black/70 text-white text-xs px-3 py-1.5 rounded-full max-w-[60%]">
-          Tap map to add waypoints
-        </div>
-      </div>
-
-      {/* Stats panel */}
-      <div className="bg-card border-t border-border p-4 space-y-3">
-        {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2">{error}</p>}
-
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <Stat label="Distance" value={activeDist.toFixed(2)} unit="km" />
-          <Stat label={tracking ? 'Speed' : 'Pace'} value={tracking ? speed.toFixed(1) : pace.toFixed(1)} unit={tracking ? 'km/h' : 'min/km'} />
-          <Stat label="ETA" value={etaMin.toString()} unit="min" />
-          <Stat label="Time" value={tracking ? fmtTime(elapsed) : '—'} unit={tracking ? '' : ''} />
-        </div>
-
-        <div className="flex gap-2">
-          {!tracking ? (
-            <button onClick={startTracking} className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white py-3 rounded-xl font-semibold active:scale-95 transition">
-              <Play size={18} /> Start GPS Tracking
+        {/* Top Controls: Hamburger Menu, Style Switcher & Saved Routes */}
+        <div className="absolute top-4 inset-x-4 z-[1000] flex items-center justify-between pointer-events-none">
+          {/* Left side: Hamburger button + Layer Style Switcher */}
+          <div className="flex items-center gap-2 pointer-events-auto">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2.5 rounded-2xl bg-black/80 hover:bg-black text-white border border-white/20 shadow-xl backdrop-blur-md cursor-pointer active:scale-90 transition"
+              title="Open Menu"
+            >
+              <Menu size={20} />
             </button>
-          ) : (
-            <button onClick={stopTracking} className="flex-1 flex items-center justify-center gap-2 bg-red-600 text-white py-3 rounded-xl font-semibold active:scale-95 transition">
-              <Square size={18} /> Stop Tracking
+
+            {/* Layer Style Switcher */}
+            <div className="flex bg-black/75 backdrop-blur-md rounded-2xl p-1 border border-white/20 shadow-xl">
+              <button
+                onClick={() => setMapStyle('satellite')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  mapStyle === 'satellite' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                🛰️ Satellite
+              </button>
+              <button
+                onClick={() => setMapStyle('topo')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  mapStyle === 'topo' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                🏔️ Topo
+              </button>
+              <button
+                onClick={() => setMapStyle('streets')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                  mapStyle === 'streets' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                🗺️ Outdoor
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pointer-events-auto">
+            <button
+              onClick={() => setShowSavedRoutes(true)}
+              className="px-3.5 py-2.5 rounded-2xl bg-black/80 hover:bg-black text-white text-xs font-bold border border-white/20 shadow-xl backdrop-blur-md flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+            >
+              <Navigation size={14} className="text-emerald-400" />
+              <span>Routes ({savedRoutes.length})</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Location Toast Notification */}
+        {locationToast && (
+          <div className="absolute top-20 inset-x-0 mx-auto w-fit z-[1500] px-4 py-2 rounded-full bg-black/90 text-white border border-emerald-400/60 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-bounce">
+            <LocateFixed size={14} className="text-emerald-400" />
+            <span>{locationToast}</span>
+          </div>
+        )}
+
+        {/* Right-Side Floating Action Buttons (Locate GPS, Music, Compass, Camera) */}
+        <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-3">
+          {/* GPS Locate Me Button */}
+          <button
+            onClick={locateUserPosition}
+            disabled={isLocating}
+            className={`w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400 group ${
+              isLocating ? 'animate-pulse border-emerald-400' : ''
+            }`}
+            title="Locate My Position"
+          >
+            {isLocating ? (
+              <RefreshCw size={22} className="text-emerald-400 animate-spin" />
+            ) : (
+              <LocateFixed size={22} className="text-emerald-400 group-hover:scale-110 transition" />
+            )}
+          </button>
+
+          {/* Music Player Button */}
+          <button
+            onClick={() => setShowMusicModal(true)}
+            className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-purple-400/80 group"
+            title="Offline Music Player"
+          >
+            <Music size={22} className="group-hover:scale-110 transition" />
+          </button>
+
+          {/* Compass Button */}
+          <button
+            onClick={() => setShowCompassModal(true)}
+            className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-sky-400/80 group"
+            title="Digital Compass"
+          >
+            <CompassIcon size={22} className="group-hover:scale-110 transition" />
+          </button>
+
+          {/* Camera / Plant Scanner Button */}
+          <button
+            onClick={() => setShowScannerModal(true)}
+            className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400/80 group"
+            title="Camera Plant Scanner"
+          >
+            <Scan size={22} className="group-hover:scale-110 transition" />
+          </button>
+        </div>
+
+        {/* Starting Point Mode Toggle Bar */}
+        <div className="absolute top-18 left-4 right-20 sm:right-auto sm:max-w-md z-[990] flex items-center justify-between bg-black/70 backdrop-blur-md border border-white/15 rounded-2xl px-3 py-2 shadow-lg text-white">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-300">Start from:</span>
+            <button
+              onClick={() => {
+                setStartMode('gps');
+                setCustomStart(null);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                startMode === 'gps' ? 'bg-emerald-600 text-white' : 'bg-white/10 text-slate-300'
+              }`}
+            >
+              📍 My GPS
+            </button>
+            <button
+              onClick={() => setStartMode('custom')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                startMode === 'custom' ? 'bg-emerald-600 text-white' : 'bg-white/10 text-slate-300'
+              }`}
+            >
+              🎯 Tap Map
+            </button>
+          </div>
+
+          {waypoints.length > 0 && (
+            <button
+              onClick={() => setShowSaveRouteModal(true)}
+              className="text-[11px] font-bold text-emerald-400 flex items-center gap-1 hover:underline"
+            >
+              <Save size={12} /> Save
             </button>
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-emerald-50 rounded-xl p-2.5">
-          <Navigation size={14} className="text-emerald-700 shrink-0" />
-          <span>{waypoints.length} waypoints planned • {totalDist.toFixed(2)} km route</span>
+        {/* Floating Active Hike HUD / Bottom Toolbelt (Shown when tracking is active) */}
+        {tracking && (
+          <div className="absolute bottom-24 inset-x-4 z-[1000] pointer-events-none">
+          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/20 rounded-3xl p-4 shadow-2xl text-white pointer-events-auto space-y-3">
+            {/* Hike Stats Summary */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Total Distance</span>
+                <p className="text-xl font-extrabold text-white">
+                  {totalDistanceKm.toFixed(2)} <span className="text-xs font-normal text-slate-400">km</span>
+                </p>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400">Hike Timer</span>
+                <p className="text-xl font-extrabold text-emerald-400 font-mono">
+                  {formatTimer(elapsedSeconds)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {!tracking ? (
+                  <button
+                    onClick={() => {
+                      setTracking(true);
+                      setTrackPath(position ? [position] : []);
+                    }}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition"
+                  >
+                    <Play size={14} /> Start Hike
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setTracking(false)}
+                    className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition"
+                  >
+                    <Square size={14} /> Stop
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Active Hike Toolbelt (Plant Scanner, Camera, Notes & Emergency) */}
+            <div className="grid grid-cols-4 gap-2 pt-1">
+              {/* 1. Plant Scanner Button during hike */}
+              <button
+                onClick={() => navigate('/plant-scanner')}
+                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 active:scale-95 transition"
+              >
+                <Leaf size={18} />
+                <span className="text-[10px] font-bold">Plant Scan</span>
+              </button>
+
+              {/* 2. Camera Button with Instant Pin Feedback */}
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-sky-300 hover:bg-sky-500/30 active:scale-95 transition"
+              >
+                <Camera size={18} />
+                <span className="text-[10px] font-bold">Snap Trail</span>
+              </button>
+
+              {/* 3. Trail Notes & Journal Entry (Right Next to Emergency!) */}
+              <button
+                onClick={() => setShowNoteModal(true)}
+                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 active:scale-95 transition"
+              >
+                <BookOpen size={18} />
+                <span className="text-[10px] font-bold">Add Note</span>
+              </button>
+
+              {/* 4. Emergency Card Button */}
+              <button
+                onClick={() => navigate('/emergency')}
+                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 active:scale-95 transition"
+              >
+                <HeartPulse size={18} />
+                <span className="text-[10px] font-bold">Emergency</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-amber-50 rounded-xl p-2.5">
-          <Mountain size={14} className="text-amber-700 shrink-0" />
-          <span>Topographic overlay shows elevation & terrain. Pan and zoom to explore.</span>
+      )}
+
+        {/* 4. Bottom Weather & Plan a Route Drawer (Matches Picture 1 & 2) */}
+        <WeatherPlanDrawer
+          isOpen={showWeatherDrawer}
+          onOpen={() => setShowWeatherDrawer(true)}
+          onClose={() => setShowWeatherDrawer(false)}
+          onOpenWeather={() => setShowWeatherModal(true)}
+          onOpenPlanRoute={() => setShowPlanRouteModal(true)}
+          temp={24}
+          condition="Partly cloudy"
+          high={31}
+          low={22}
+          locationName="Current location"
+        />
+      </div>
+
+      {/* Weather Screen Modal (Matches Picture 4) */}
+      {showWeatherModal && (
+        <WeatherModal onClose={() => setShowWeatherModal(false)} />
+      )}
+
+      {/* Plan a Route Screen Modal (Matches Picture 3) */}
+      {showPlanRouteModal && (
+        <PlanRouteModal
+          onClose={() => setShowPlanRouteModal(false)}
+          onStartRoute={(dest) => {
+            const newWp = {
+              id: `dest_${Date.now()}`,
+              name: dest.name,
+              lat: dest.lat,
+              lng: dest.lng,
+              isDest: true,
+            };
+            setWaypoints((prev) => [...prev, newWp]);
+            setPosition([dest.lat, dest.lng]);
+          }}
+        />
+      )}
+
+      {/* Photo Capture Modal / Action Confirmation */}
+      {capturedPhoto && (
+        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 shadow-2xl animate-in zoom-in-95 duration-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                <Check size={14} /> Photo Tagged to GPS Waypoint!
+              </span>
+              <button onClick={() => setCapturedPhoto(null)} className="p-1 text-slate-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <img
+              src={capturedPhoto.url}
+              alt="Trail Capture"
+              className="w-full h-44 object-cover rounded-2xl border border-white/10"
+            />
+
+            <p className="text-[11px] text-slate-400 font-mono">
+              Captured at {capturedPhoto.time} • ({capturedPhoto.lat?.toFixed(4)}, {capturedPhoto.lng?.toFixed(4)})
+            </p>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const photoUrl = capturedPhoto.url;
+                  setCapturedPhoto(null);
+                  navigate('/plant-scanner', { state: { photoUrl } });
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-xs flex items-center justify-center gap-1"
+              >
+                <Leaf size={14} /> Identify Plant
+              </button>
+              <button
+                onClick={() => {
+                  setTrailNoteText('Captured photo on summit ascent.');
+                  setShowNoteModal(true);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 font-bold text-xs flex items-center justify-center gap-1"
+              >
+                <BookOpen size={14} /> Add Note
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Trail Note / Journal Modal */}
+      {showNoteModal && (
+        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm flex items-center gap-1.5">
+                <BookOpen size={16} className="text-amber-400" />
+                <span>Trail Note & Journal Entry</span>
+              </h3>
+              <button onClick={() => setShowNoteModal(false)} className="p-1 text-slate-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <textarea
+              value={trailNoteText}
+              onChange={(e) => setTrailNoteText(e.target.value)}
+              placeholder="Jot down notes (e.g. water source spotted, steep rock scramble, resting at base camp)…"
+              rows={3}
+              className="w-full px-3 py-2.5 rounded-2xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+
+            <button
+              onClick={saveTrailNote}
+              className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 font-bold text-xs active:scale-95 transition"
+            >
+              Save to Travel Journal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Waypoint Rename & Edit Modal */}
+      {editingWaypoint && (
+        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm">Edit Pin / Destination</h3>
+              <button onClick={() => setEditingWaypoint(null)} className="p-1 text-slate-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400">Waypoint Name / Label</label>
+              <input
+                type="text"
+                value={editingWaypoint.name}
+                onChange={(e) =>
+                  setEditingWaypoint({ ...editingWaypoint, name: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white mt-1 focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setWaypoints((prev) => prev.filter((w) => w.id !== editingWaypoint.id));
+                  setEditingWaypoint(null);
+                }}
+                className="flex-1 py-2 rounded-xl bg-red-900/60 hover:bg-red-800 text-red-200 font-semibold text-xs flex items-center justify-center gap-1"
+              >
+                <Trash2 size={14} /> Remove Pin
+              </button>
+              <button
+                onClick={() => {
+                  setWaypoints((prev) =>
+                    prev.map((w) => (w.id === editingWaypoint.id ? editingWaypoint : w))
+                  );
+                  setEditingWaypoint(null);
+                }}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-xs"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Route Modal */}
+      {showSaveRouteModal && (
+        <div className="fixed inset-0 z-[2600] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-3">
+            <h3 className="font-bold text-sm">Save This Planned Route</h3>
+            <input
+              type="text"
+              value={routeNameInput}
+              onChange={(e) => setRouteNameInput(e.target.value)}
+              placeholder="e.g. Mt. Batulao Day Hike"
+              className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowSaveRouteModal(false)}
+                className="flex-1 py-2 rounded-xl border border-slate-700 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCurrentRoute}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 font-bold text-xs"
+              >
+                Save Route
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Your Routes Drawer */}
+      {showSavedRoutes && (
+        <div className="fixed inset-0 z-[2700] bg-black/80 backdrop-blur-md flex flex-col justify-end p-0 sm:p-4">
+          <div className="bg-slate-900 border-t sm:border border-slate-700 text-white rounded-t-3xl sm:rounded-3xl max-w-md w-full mx-auto p-5 max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <h3 className="font-bold text-sm flex items-center gap-1.5">
+                <Navigation size={16} className="text-emerald-400" />
+                <span>Your Saved Routes ({savedRoutes.length})</span>
+              </h3>
+              <button onClick={() => setShowSavedRoutes(false)} className="p-1.5 text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-400 mt-2">
+              Tap any route to view on map, or use Edit to rename or modify trail waypoints.
+            </p>
+
+            <div className="flex-1 overflow-y-auto space-y-2 mt-3 pr-0.5">
+              {savedRoutes.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <Navigation size={28} className="mx-auto text-slate-600" />
+                  <p className="text-xs text-slate-400">
+                    No saved routes yet. Pin destinations & waypoints on the map, then tap Save Route.
+                  </p>
+                </div>
+              ) : (
+                savedRoutes.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => loadSavedRoute(r)}
+                    className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between gap-3 hover:bg-white/10 active:scale-[0.99] transition cursor-pointer group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-xs text-white truncate group-hover:text-emerald-400 transition">{r.name}</h4>
+                      <p className="text-[10px] text-emerald-400 font-mono mt-0.5">
+                        {r.distance} km • {r.waypoints?.length || 0} waypoints • {r.createdAt}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => loadSavedRoute(r)}
+                        className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold active:scale-95 transition"
+                        title="View on Map"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={(e) => openEditRouteModal(r, e)}
+                        className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition active:scale-95"
+                        title="Edit Route"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button
+                        onClick={() => deleteSavedRoute(r.id)}
+                        className="p-1.5 rounded-lg bg-white/10 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition active:scale-95"
+                        title="Delete Route"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Route Modal */}
+      {editingRoute && (
+        <div className="fixed inset-0 z-[2800] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Edit2 size={16} className="text-emerald-400" />
+                <span>Edit Route</span>
+              </h3>
+              <button onClick={() => setEditingRoute(null)} className="p-1 text-slate-400">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1 font-bold">Route Name</label>
+              <input
+                value={editRouteName}
+                onChange={(e) => setEditRouteName(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={saveEditedRouteName}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold active:scale-95 transition"
+              >
+                Save Name
+              </button>
+              <button
+                onClick={() => editRouteOnMap(editingRoute)}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold active:scale-95 transition flex items-center justify-center gap-1.5"
+              >
+                <MapIcon size={14} className="text-emerald-400" />
+                Edit Waypoints on Live Map
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Left Sidebar Menu (Matches User Screenshot Exactly) */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-[2500] bg-black/60 backdrop-blur-sm transition-opacity"
+        />
+      )}
+
+      <div
+        className={`fixed top-0 bottom-0 left-0 z-[2600] w-[340px] max-w-[85vw] bg-[#12261c] text-white p-4 overflow-y-auto no-scrollbar sidebar-drawer [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] transition-transform duration-300 ease-out shadow-2xl flex flex-col justify-between ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        <div className="space-y-3">
+          {/* Top Close Button on Mobile */}
+          <div className="flex justify-end pb-1">
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 active:scale-90 transition cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Profile Card (White Card with Dark Avatar & 'Edit profile >') */}
+          <div className="bg-white text-slate-900 rounded-3xl p-5 shadow-xl text-center flex flex-col items-center">
+            {/* Circular Dark Avatar with Letter */}
+            <div className="w-20 h-20 rounded-full bg-[#182a20] text-white text-3xl font-bold flex items-center justify-center overflow-hidden border-2 border-[#243f30] shadow-md mb-3">
+              {user?.photo_url ? (
+                <img src={user.photo_url} alt={displayName} className="w-full h-full object-cover" />
+              ) : (
+                <span>{initialLetter}</span>
+              )}
+            </div>
+
+            {/* User Full Name */}
+            <h3 className="font-bold text-base leading-tight text-slate-900">
+              {displayName}
+            </h3>
+
+            {/* Email */}
+            <p className="text-[11px] text-slate-500 mt-1 break-all">
+              {displayEmail}
+            </p>
+
+            {/* Red / Coral 'Edit profile >' Link */}
+            <button
+              onClick={() => {
+                setEditName(displayName);
+                setEditPhoto(user?.photo_url || '');
+                setShowEditProfileModal(true);
+              }}
+              className="text-xs text-red-500 font-semibold mt-3 hover:underline flex items-center gap-0.5 active:scale-95 transition cursor-pointer"
+            >
+              Edit profile &gt;
+            </button>
+          </div>
+
+          {/* White Pill Action Cards (From User Screenshot) */}
+          <div className="space-y-2 pt-1">
+            {/* 1. Backpacking Guide */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/backpacking'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-emerald-400 flex items-center justify-center shrink-0">
+                  <Backpack size={20} />
+                </div>
+                <span className="font-bold text-sm">Backpacking Guide</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 2. Your Routes */}
+            <button
+              onClick={() => {
+                setSidebarOpen(false);
+                setShowSavedRoutes(true);
+              }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-emerald-400 flex items-center justify-center shrink-0">
+                  <Navigation size={20} />
+                </div>
+                <span className="font-bold text-sm">Your Routes</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 3. First Aid Guide */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/first-aid'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-rose-400 flex items-center justify-center shrink-0">
+                  <HeartPulse size={20} />
+                </div>
+                <span className="font-bold text-sm">First Aid Guide</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 4. Survival Manual */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/survival'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-amber-400 flex items-center justify-center shrink-0">
+                  <BookOpen size={20} />
+                </div>
+                <span className="font-bold text-sm">Survival Manual</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 5. My Profile */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/profile'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-cyan-400 flex items-center justify-center shrink-0">
+                  <UserRound size={20} />
+                </div>
+                <span className="font-bold text-sm">My Profile</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 6. Mountains Conquered */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/mountain-tracker'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-stone-300 flex items-center justify-center shrink-0">
+                  <Mountain size={20} />
+                </div>
+                <span className="font-bold text-sm">Mountains Conquered</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 7. Emergency Info Card */}
+            <button
+              onClick={() => { setSidebarOpen(false); navigate('/emergency'); }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-red-500 flex items-center justify-center shrink-0">
+                  <AlertCircle size={20} />
+                </div>
+                <span className="font-bold text-sm">Emergency Info Card</span>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+          </div>
+        </div>
+
+        {/* Logout Button */}
+        <div className="pt-4 border-t border-white/10 mt-4">
+          <button
+            onClick={() => { setSidebarOpen(false); logout(); }}
+            className="w-full py-3 rounded-2xl bg-red-950/60 hover:bg-red-900/80 border border-red-500/30 text-red-300 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition cursor-pointer"
+          >
+            <LogOut size={16} /> Sign Out of Clerk
+          </button>
         </div>
       </div>
-    </div>
-  );
-}
 
-function Stat({ label, value, unit }) {
-  return (
-    <div className="bg-muted/50 rounded-xl py-2">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
-      <p className="text-sm font-bold leading-tight">{value}</p>
-      <p className="text-[10px] text-muted-foreground">{unit}</p>
+      {/* Music Player Modal */}
+      {showMusicModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/90 backdrop-blur-xl flex flex-col">
+          <MusicMode onClose={() => setShowMusicModal(false)} />
+        </div>
+      )}
+
+      {/* Digital Compass Modal */}
+      {showCompassModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setShowCompassModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center justify-center gap-2 text-sky-400 font-bold text-sm">
+              <CompassIcon size={20} />
+              <span>Trail Digital Compass</span>
+            </div>
+
+            {/* Compass Rose */}
+            <div className="relative w-64 h-64 mx-auto my-4 flex items-center justify-center">
+              {/* Fixed Cardinal Markings */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="absolute top-2 text-red-500 font-black text-lg">N</span>
+                <span className="absolute bottom-2 text-slate-400 font-bold text-lg">S</span>
+                <span className="absolute left-2 text-slate-400 font-bold text-lg">W</span>
+                <span className="absolute right-2 text-slate-400 font-bold text-lg">E</span>
+              </div>
+
+              {/* Rotating Dial */}
+              <div
+                className="w-52 h-52 rounded-full border-4 border-slate-700 relative transition-transform duration-200"
+                style={{ transform: `rotate(${-compassHeading}deg)` }}
+              >
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-6 bg-red-600 rounded-full" />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-1.5 h-4 bg-slate-500 rounded-full" />
+              </div>
+
+              {/* Center Pointer */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <Navigation size={32} className="text-emerald-400" style={{ transform: `rotate(${compassHeading}deg)` }} />
+                <p className="text-2xl font-black mt-2 font-mono">{compassHeading}°</p>
+                <p className="text-xs text-slate-400 font-bold">
+                  {['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(compassHeading / 45) % 8]}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-2xl bg-white/5 border border-white/10 text-xs font-mono text-slate-300">
+              GPS: {position ? `${position[0].toFixed(4)}°N, ${position[1].toFixed(4)}°E` : 'Locating…'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Plant Scanner Modal (100% Offline Real Device Camera) */}
+      {showScannerModal && (
+        <CameraPlantScanner onClose={() => setShowScannerModal(false)} />
+      )}
+
+      {/* Edit Profile Modal */}
+      {showEditProfileModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <h3 className="font-bold text-sm">Edit Profile</h3>
+              <button onClick={() => setShowEditProfileModal(false)} className="p-1 text-slate-400 hover:text-white cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1 font-bold">Full Name</label>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Full Name"
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowEditProfileModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveProfileChanges}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs active:scale-95 transition cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

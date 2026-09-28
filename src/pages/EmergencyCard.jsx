@@ -48,35 +48,37 @@ export default function EmergencyCard() {
   );
 
   return (
-    <div className="min-h-full">
+    <div className="min-h-full w-full max-w-full overflow-x-hidden">
       <PageHeader title="Emergency Info Card" subtitle="Your vital details" icon={UserRound} accent="bg-red-700" />
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 max-w-lg mx-auto w-full">
         {/* Emergency card preview */}
-        <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-3xl p-5 shadow-lg">
+        <div className="bg-gradient-to-br from-red-600 to-red-800 text-white rounded-3xl p-5 shadow-lg max-w-full overflow-hidden break-words">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <AlertCircle size={20} />
+              <AlertCircle size={20} className="shrink-0" />
               <span className="text-xs uppercase tracking-widest font-bold opacity-90">Emergency</span>
             </div>
-            <Heart size={20} className="opacity-80" />
+            <Heart size={20} className="opacity-80 shrink-0" />
           </div>
-          <p className="text-2xl font-bold mt-3">{info.full_name || 'Your Name'}</p>
+          <p className="text-2xl font-bold mt-3 break-words">{info.full_name || 'Your Name'}</p>
           {info.blood_type && <p className="text-sm opacity-90">Blood type: {info.blood_type}</p>}
-          {info.allergies && <p className="text-sm opacity-90 mt-1">⚠️ Allergies: {info.allergies}</p>}
+          {info.allergies && <p className="text-sm opacity-90 mt-1 break-words">⚠️ Allergies: {info.allergies}</p>}
+          {info.medical_conditions && <p className="text-xs opacity-80 mt-1 break-words">Conditions: {info.medical_conditions}</p>}
+          {info.medications && <p className="text-xs opacity-80 mt-1 break-words">Medications: {info.medications}</p>}
           {info.emergency_contact_name && (
-            <div className="mt-4 pt-3 border-t border-white/20">
+            <div className="mt-4 pt-3 border-t border-white/20 break-words">
               <p className="text-xs opacity-80">In case of emergency, contact:</p>
-              <p className="font-semibold">{info.emergency_contact_name}</p>
-              <p className="text-sm">{info.emergency_contact_phone}</p>
+              <p className="font-semibold break-words">{info.emergency_contact_name} {info.emergency_contact_relation ? `(${info.emergency_contact_relation})` : ''}</p>
+              <p className="text-sm break-all font-mono">{info.emergency_contact_phone}</p>
             </div>
           )}
         </div>
 
         {/* Form */}
-        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3 max-w-full overflow-hidden">
           <h3 className="text-sm font-bold">Personal Information</h3>
           <Field label="Full name" value={info.full_name} onChange={(v) => set('full_name', v)} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Field label="Blood type" value={info.blood_type} onChange={(v) => set('blood_type', v)} placeholder="O+" />
             <Field label="Date of birth" value={info.date_of_birth} onChange={(v) => set('date_of_birth', v)} type="date" />
           </div>
@@ -86,13 +88,13 @@ export default function EmergencyCard() {
 
           <h3 className="text-sm font-bold pt-2">Emergency Contact</h3>
           <Field label="Contact name" value={info.emergency_contact_name} onChange={(v) => set('emergency_contact_name', v)} />
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Phone" value={info.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} icon={Phone} />
-            <Field label="Relation" value={info.emergency_contact_relation} onChange={(v) => set('emergency_contact_relation', v)} placeholder="Spouse" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Field label="Phone" value={info.emergency_contact_phone} onChange={(v) => set('emergency_contact_phone', v)} icon={Phone} type="tel" />
+            <Field label="Relation" value={info.emergency_contact_relation} onChange={(v) => set('emergency_contact_relation', v)} placeholder="Spouse / Parent / Friend" />
           </div>
           <Field label="Additional notes" value={info.notes} onChange={(v) => set('notes', v)} />
 
-          <button onClick={save} disabled={saving} className="w-full flex items-center justify-center gap-2 bg-red-700 text-white py-3 rounded-xl font-semibold active:scale-95 transition disabled:opacity-60">
+          <button onClick={save} disabled={saving} className="w-full flex items-center justify-center gap-2 bg-red-700 text-white py-3 rounded-xl font-semibold active:scale-95 transition disabled:opacity-60 shadow-md">
             <Save size={18} /> {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Emergency Card'}
           </button>
         </div>
@@ -103,16 +105,16 @@ export default function EmergencyCard() {
 
 function Field({ label, value, onChange, placeholder, type = 'text', icon: Icon }) {
   return (
-    <div>
-      <label className="text-xs text-muted-foreground">{label}</label>
-      <div className="relative">
-        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />}
+    <div className="w-full min-w-0">
+      <label className="text-xs text-muted-foreground block mb-1 font-medium">{label}</label>
+      <div className="relative w-full min-w-0">
+        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />}
         <input
           type={type}
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className={`w-full px-3 py-2 rounded-xl bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-red-500 ${Icon ? 'pl-9' : ''}`}
+          className={`w-full min-w-0 max-w-full box-border px-3 py-2 rounded-xl bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-red-500 ${Icon ? 'pl-9' : ''}`}
         />
       </div>
     </div>

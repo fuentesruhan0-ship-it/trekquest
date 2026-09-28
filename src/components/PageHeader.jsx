@@ -1,14 +1,14 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
-export default function PageHeader({ title, subtitle, icon: Icon, accent = 'bg-primary' }) {
+export default function PageHeader({ title, subtitle, icon: Icon, accent = 'bg-primary', onBack }) {
   const navigate = useNavigate();
   return (
     <header className="sticky top-0 z-30 bg-card/90 backdrop-blur-md border-b border-border">
       <div className="flex items-center gap-3 px-4 py-3">
         <button
-          onClick={() => navigate(-1)}
-          className="p-2 -ml-2 rounded-full hover:bg-muted transition-colors"
+          onClick={onBack ? onBack : () => navigate(-1)}
+          className="p-2 -ml-2 rounded-full hover:bg-muted transition-colors active:scale-90"
           aria-label="Back"
         >
           <ArrowLeft size={20} />
