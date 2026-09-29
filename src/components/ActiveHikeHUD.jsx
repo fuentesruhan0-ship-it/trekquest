@@ -463,7 +463,7 @@ export default function ActiveHikeHUD({
                 Your Hike is Completed! 🎉
               </h2>
               <p className="text-xs text-slate-300 mt-1">
-                Outstanding work, <strong className="text-white">{user?.full_name || 'Hiker'}</strong>! You conquered <strong className="text-emerald-400">{destination?.name}</strong>.
+                Outstanding work, <strong className="text-white">{user?.full_name || user?.fullName || user?.firstName || (user?.email ? user.email.split('@')[0] : 'Hiker')}</strong>! You conquered <strong className="text-emerald-400">{destination?.name}</strong>.
               </p>
             </div>
 

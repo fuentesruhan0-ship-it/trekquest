@@ -41,7 +41,7 @@ export default function HikePreStartModal({ destination, currentPosition, onClos
   const [weather, setWeather] = useState(null);
   const [starting, setStarting] = useState(false);
 
-  const hikerName = user?.full_name || 'Hiker';
+  const hikerName = user?.full_name || user?.fullName || user?.firstName || (user?.email ? user.email.split('@')[0] : 'Hiker');
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-PH', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
