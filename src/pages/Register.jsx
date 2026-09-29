@@ -1,8 +1,15 @@
 import React from "react";
 import { SignUp } from "@clerk/react";
 import { Mountain } from "lucide-react";
+import { useAuth } from "@/lib/AuthContext";
+import { Navigate } from "react-router-dom";
 
 export default function Register() {
+  const { isAuthenticated, user } = useAuth();
+
+  if (isAuthenticated && user) {
+    return <Navigate to="/" replace />;
+  }
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-b from-emerald-50 via-background to-background">
       <div className="w-full max-w-md flex flex-col items-center">

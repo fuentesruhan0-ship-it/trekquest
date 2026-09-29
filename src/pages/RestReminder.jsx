@@ -3,13 +3,24 @@ import PageHeader from '@/components/PageHeader';
 import { Armchair, Clock, Mountain, Timer, Bell } from 'lucide-react';
 
 export default function RestReminder() {
-  const [distance, setDistance] = useState(8);
-  const [elevation, setElevation] = useState(500);
-  const [difficulty, setDifficulty] = useState('moderate');
+  const [distance, setDistance] = useState(() => {
+    try { return Number(localStorage.getItem('rr_distance') || 8); } catch { return 8; }
+  });
+  const [elevation, setElevation] = useState(() => {
+    try { return Number(localStorage.getItem('rr_elevation') || 500); } catch { return 500; }
+  });
+  const [difficulty, setDifficulty] = useState(() => {
+    try { return localStorage.getItem('rr_difficulty') || 'moderate'; } catch { return 'moderate'; }
+  });
   const [hikingTime, setHikingTime] = useState(0);
   const [running, setRunning] = useState(false);
   const [lastRest, setLastRest] = useState(0);
   const [now, setNow] = useState(Date.now());
+
+  // Persist trail settings
+  useEffect(() => { try { localStorage.setItem('rr_distance', String(distance)); } catch {} }, [distance]);
+  useEffect(() => { try { localStorage.setItem('rr_elevation', String(elevation)); } catch {} }, [elevation]);
+  useEffect(() => { try { localStorage.setItem('rr_difficulty', difficulty); } catch {} }, [difficulty]);
 
   // Difficulty factor
   const diffFactor = { easy: 60, moderate: 45, hard: 30, expert: 20 }[difficulty] || 45;

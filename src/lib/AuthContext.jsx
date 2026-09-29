@@ -10,6 +10,15 @@ export const AuthProvider = ({ children }) => {
 
   const isLoaded = Boolean(isUserLoaded && isAuthLoaded);
 
+  // Read cached session from previous online login
+  const [cachedUser, setCachedUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('trekquest_cached_session') || 'null');
+    } catch {
+      return null;
+    }
+  });
+
   const [customProfile, setCustomProfile] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('trekquest_custom_profile') || '{}');
@@ -17,6 +26,21 @@ export const AuthProvider = ({ children }) => {
       return {};
     }
   });
+
+  // Whenever user signs in online via Clerk, cache their profile for offline use
+  React.useEffect(() => {
+    if (clerkUser && isSignedIn) {
+      const session = {
+        id: clerkUser.id,
+        full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
+        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+        photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
+        cachedAt: Date.now(),
+      };
+      setCachedUser(session);
+      localStorage.setItem('trekquest_cached_session', JSON.stringify(session));
+    }
+  }, [clerkUser, isSignedIn, customProfile]);
 
   const updateProfile = async ({ full_name, photo_url }) => {
     const updated = {
@@ -26,6 +50,17 @@ export const AuthProvider = ({ children }) => {
     };
     setCustomProfile(updated);
     localStorage.setItem('trekquest_custom_profile', JSON.stringify(updated));
+
+    // Also update cached session
+    if (cachedUser) {
+      const updatedCache = {
+        ...cachedUser,
+        ...(full_name !== undefined ? { full_name } : {}),
+        ...(photo_url !== undefined ? { photo_url } : {})
+      };
+      setCachedUser(updatedCache);
+      localStorage.setItem('trekquest_cached_session', JSON.stringify(updatedCache));
+    }
 
     if (clerkUser && full_name) {
       try {
@@ -41,24 +76,46 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Adapt Clerk user object to the app's standard structure
+  // Adapt Clerk user object OR use cached offline session
   const user = useMemo(() => {
-    if (!clerkUser) return null;
-    return {
-      id: clerkUser.id,
-      full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
-      email: clerkUser.primaryEmailAddress?.emailAddress || '',
-      photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
-      raw: clerkUser,
-    };
-  }, [clerkUser, customProfile]);
+    if (clerkUser) {
+      return {
+        id: clerkUser.id,
+        full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
+        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+        photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
+        raw: clerkUser,
+        isOfflineSession: false,
+      };
+    }
+    if (cachedUser) {
+      return {
+        ...cachedUser,
+        full_name: customProfile.full_name || cachedUser.full_name || 'Hiker',
+        photo_url: customProfile.photo_url || cachedUser.photo_url || '',
+        isOfflineSession: true,
+      };
+    }
+    return null;
+  }, [clerkUser, cachedUser, customProfile]);
+
+  const hasCachedSession = Boolean(cachedUser);
+  const isAuthenticated = Boolean(isSignedIn || hasCachedSession);
+  // If user already logged in before and has a cached session, do not block them with a loading spinner
+  const isLoadingAuth = hasCachedSession ? false : !isLoaded;
 
   const logout = async () => {
     try {
-      await signOut();
-      window.location.href = '/login';
+      localStorage.removeItem('trekquest_cached_session');
+      localStorage.removeItem('trekquest_custom_profile');
+      setCachedUser(null);
+      if (signOut) {
+        await signOut().catch(() => {});
+      }
     } catch (e) {
       console.error('Logout error:', e);
+    } finally {
+      window.location.href = '/login';
     }
   };
 
@@ -70,12 +127,13 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: Boolean(isSignedIn),
-        isLoadingAuth: !isLoaded,
+        isAuthenticated,
+        isLoadingAuth,
+        isOfflineMode: !isSignedIn && hasCachedSession,
         isLoadingPublicSettings: false,
         authError: null,
         appPublicSettings: { id: 'trek-quest' },
-        authChecked: isLoaded,
+        authChecked: true,
         logout,
         navigateToLogin,
         updateProfile,

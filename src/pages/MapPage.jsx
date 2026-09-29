@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   Map as MapIcon, Play, Square, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
   X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
-  UserRound, Mountain, AlertCircle, LogOut, RefreshCw
+  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Camera, Users
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
@@ -98,8 +98,8 @@ export default function MapPage() {
   const [searchParams] = useSearchParams();
   const { user, logout, updateProfile } = useAuth();
 
-  const displayName = user?.full_name || 'Reiljee Shearl Calayco Fuentes';
-  const displayEmail = user?.email || 'reiljee@example.com';
+  const displayName = user?.full_name || 'Hiker';
+  const displayEmail = user?.email || '';
   const initialLetter = displayName.charAt(0).toUpperCase();
 
   // Position state (Red dot)
@@ -149,7 +149,7 @@ export default function MapPage() {
 
 
   // Edit Profile Form
-  const [editName, setEditName] = useState(user?.full_name || 'Reiljee Shearl Calayco Fuentes');
+  const [editName, setEditName] = useState(user?.full_name || '');
   const [editPhoto, setEditPhoto] = useState(user?.photo_url || '');
 
   // Dynamic user avatar map icon — updates whenever photo or locatePing changes
@@ -209,6 +209,114 @@ export default function MapPage() {
   const watchIdRef = useRef(null);
   const timerIntervalRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const locationShareIntervalRef = useRef(null);
+
+  // ── MULTI-USER MAP SHARING (fully offline via shared localStorage) ──────────
+  // Each user writes their position to the shared pool every 5 seconds.
+  // All connected devices on the same browser/device session can see each other.
+  // Format: { [userId]: { id, name, photo_url, lat, lng, updated_at } }
+  const SHARED_KEY = 'trekquest_user_locations';
+
+  const getSharedLocations = () => {
+    try {
+      return JSON.parse(localStorage.getItem(SHARED_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  };
+
+  const [otherUsers, setOtherUsers] = useState([]);
+  const [showOtherUsers, setShowOtherUsers] = useState(true);
+
+  // Publish this user's location to the shared pool
+  const publishMyLocation = (coords) => {
+    if (!user?.id || !coords) return;
+    const pool = getSharedLocations();
+    pool[user.id] = {
+      id: user.id,
+      name: user.full_name || 'Hiker',
+      photo_url: user.photo_url || '',
+      lat: coords[0],
+      lng: coords[1],
+      updated_at: Date.now(),
+    };
+    try {
+      localStorage.setItem(SHARED_KEY, JSON.stringify(pool));
+    } catch {}
+  };
+
+  // Read all OTHER users from the shared pool (exclude self, exclude stale >5 min)
+  const readOtherUsers = () => {
+    const pool = getSharedLocations();
+    const now = Date.now();
+    const STALE_MS = 5 * 60 * 1000; // 5 minutes
+    const others = Object.values(pool).filter(
+      (u) => u.id !== user?.id && (now - (u.updated_at || 0)) < STALE_MS
+    );
+    setOtherUsers(others);
+  };
+
+  // Publish my position whenever GPS updates
+  useEffect(() => {
+    if (position && user?.id) {
+      publishMyLocation(position);
+    }
+  }, [position, user?.id]);
+
+  // Poll for other users every 5 seconds + listen for instant cross-tab storage events
+  useEffect(() => {
+    readOtherUsers();
+    locationShareIntervalRef.current = setInterval(readOtherUsers, 5000);
+
+    const handleStorageChange = (e) => {
+      if (e.key === SHARED_KEY) {
+        readOtherUsers();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      if (locationShareIntervalRef.current) clearInterval(locationShareIntervalRef.current);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [user?.id]);
+
+  // Remove my entry from the pool when component unmounts (user leaves map)
+  useEffect(() => {
+    return () => {
+      if (!user?.id) return;
+      try {
+        const pool = getSharedLocations();
+        delete pool[user.id];
+        localStorage.setItem(SHARED_KEY, JSON.stringify(pool));
+      } catch {}
+    };
+  }, [user?.id]);
+
+  // Create avatar icon for other users
+  const createOtherUserIcon = (userData) => {
+    const { name, photo_url } = userData;
+    const initial = (name || '?').charAt(0).toUpperCase();
+    const size = 46;
+    const half = size / 2;
+    const innerSize = 32;
+    const imgTag = photo_url
+      ? `<img src="${photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none';this.nextSibling.style.display='flex';" />
+         <span style="display:none;width:100%;height:100%;border-radius:50%;background:#7c3aed;color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`
+      : `<span style="display:flex;width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#a78bfa);color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`;
+    return L.divIcon({
+      html: `<div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(124,58,237,0.35);animation:pulseRing 2.2s ease-out infinite;"></div>
+        <div style="position:relative;width:${innerSize}px;height:${innerSize}px;border-radius:50%;overflow:hidden;border:2.5px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.55);background:#7c3aed;display:flex;align-items:center;justify-content:center;">
+          ${imgTag}
+        </div>
+        <div style="position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid white;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.35));"></div>
+      </div>`,
+      className: '',
+      iconSize: [size, size + 7],
+      iconAnchor: [half, size + 7],
+    });
+  };
 
   // Check URL parameters if arrived with ?drawer=routes or from mountain search
   useEffect(() => {
@@ -300,13 +408,13 @@ export default function MapPage() {
         setIsLocating(false);
         setLocatePing(true);
         setTimeout(() => setLocatePing(false), 6000);
-        setLocationToast(`Located! ${coords[0].toFixed(4)}°, ${coords[1].toFixed(4)}°`);
-        setTimeout(() => setLocationToast(''), 3500);
+        setLocationToast(`🛰️ GPS Fix: ${coords[0].toFixed(4)}°, ${coords[1].toFixed(4)}° (Satellite • 0 Load Needed)`);
+        setTimeout(() => setLocationToast(''), 4000);
       },
       (err) => {
         setIsLocating(false);
-        setLocationToast('Unable to acquire GPS fix: ' + (err.message || 'Permission denied'));
-        setTimeout(() => setLocationToast(''), 3500);
+        setLocationToast('⚠️ GPS Note: Ensure Location/GPS is ON in your phone settings (0 load needed)');
+        setTimeout(() => setLocationToast(''), 4000);
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
@@ -547,6 +655,27 @@ export default function MapPage() {
             />
           )}
 
+          {/* Other Users' Live GPS Markers */}
+          {showOtherUsers && otherUsers.map((u) => (
+            <Marker
+              key={u.id}
+              position={[u.lat, u.lng]}
+              icon={createOtherUserIcon(u)}
+            >
+              <Popup>
+                <div className="text-xs font-semibold space-y-1">
+                  <p className="text-violet-600 font-bold">{u.name}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    {u.lat.toFixed(5)}, {u.lng.toFixed(5)}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Last seen: {Math.round((Date.now() - u.updated_at) / 1000)}s ago
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
           {/* Active Hike Walked Track */}
           {trackPath.length >= 2 && (
             <Polyline
@@ -602,6 +731,26 @@ export default function MapPage() {
           </div>
 
           <div className="flex gap-2 pointer-events-auto">
+            {/* Other Users Toggle Button with count badge */}
+            <div className="relative">
+              <button
+                onClick={() => setShowOtherUsers((v) => !v)}
+                className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md shadow-2xl border transition cursor-pointer active:scale-90 ${
+                  showOtherUsers
+                    ? 'bg-violet-600/90 border-violet-400 text-white'
+                    : 'bg-black/80 border-white/20 text-slate-400 hover:text-white'
+                }`}
+                title={showOtherUsers ? 'Hide other hikers on map' : 'Show other hikers on map'}
+              >
+                <Users size={18} />
+              </button>
+              {otherUsers.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center border border-black shadow">
+                  {otherUsers.length}
+                </span>
+              )}
+            </div>
+
             <button
               onClick={() => setShowSavedRoutes(true)}
               className="px-3.5 py-2.5 rounded-2xl bg-black/80 hover:bg-black text-white text-xs font-bold border border-white/20 shadow-xl backdrop-blur-md flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
@@ -617,6 +766,14 @@ export default function MapPage() {
           <div className="absolute top-20 inset-x-0 mx-auto w-fit z-[1500] px-4 py-2 rounded-full bg-black/90 text-white border border-emerald-400/60 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-bounce">
             <LocateFixed size={14} className="text-emerald-400" />
             <span>{locationToast}</span>
+          </div>
+        )}
+
+        {/* Other Hikers Online Notification (shown when others are visible) */}
+        {showOtherUsers && otherUsers.length > 0 && !locationToast && (
+          <div className="absolute top-20 inset-x-0 mx-auto w-fit z-[1400] px-4 py-2 rounded-full bg-violet-900/90 text-white border border-violet-400/60 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2">
+            <Users size={13} className="text-violet-300" />
+            <span>{otherUsers.length} hiker{otherUsers.length > 1 ? 's' : ''} visible on map — tap icon to track</span>
           </div>
         )}
 

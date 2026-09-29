@@ -57,9 +57,10 @@ const createLocalEntityStore = (storageKey, defaultItems = []) => {
 
     async bulkCreate(dataList) {
       const items = getItems();
-      const newItems = dataList.map((data) => ({
+      const baseTs = Date.now();
+      const newItems = dataList.map((data, idx) => ({
         ...data,
-        id: data.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        id: data.id || `local_${baseTs}_${idx}_${Math.random().toString(36).substring(2, 9)}`,
         created_at: new Date().toISOString(),
       }));
       items.push(...newItems);

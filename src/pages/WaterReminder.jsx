@@ -3,13 +3,27 @@ import PageHeader from '@/components/PageHeader';
 import { Droplets, Plus, Minus, Bell, Activity } from 'lucide-react';
 
 export default function WaterReminder() {
-  const [weight, setWeight] = useState(70);
-  const [duration, setDuration] = useState(120);
-  const [intensity, setIntensity] = useState('moderate');
-  const [intake, setIntake] = useState(0); // glasses drunk (250ml each)
+  const [weight, setWeight] = useState(() => {
+    try { return Number(localStorage.getItem('wr_weight') || 70); } catch { return 70; }
+  });
+  const [duration, setDuration] = useState(() => {
+    try { return Number(localStorage.getItem('wr_duration') || 120); } catch { return 120; }
+  });
+  const [intensity, setIntensity] = useState(() => {
+    try { return localStorage.getItem('wr_intensity') || 'moderate'; } catch { return 'moderate'; }
+  });
+  const [intake, setIntake] = useState(() => {
+    try { return Number(localStorage.getItem('wr_intake') || 0); } catch { return 0; }
+  });
   const [reminderOn, setReminderOn] = useState(false);
   const [lastDrink, setLastDrink] = useState(Date.now());
   const intervalRef = useRef(null);
+
+  // Persist settings whenever they change
+  useEffect(() => { try { localStorage.setItem('wr_weight', String(weight)); } catch {} }, [weight]);
+  useEffect(() => { try { localStorage.setItem('wr_duration', String(duration)); } catch {} }, [duration]);
+  useEffect(() => { try { localStorage.setItem('wr_intensity', intensity); } catch {} }, [intensity]);
+  useEffect(() => { try { localStorage.setItem('wr_intake', String(intake)); } catch {} }, [intake]);
 
   // Estimate: base 35ml/kg + extra for activity
   const intensityFactor = { easy: 0.5, moderate: 0.8, hard: 1.2 }[intensity] || 0.8;
@@ -81,6 +95,9 @@ export default function WaterReminder() {
           </button>
           <button onClick={() => setIntake((i) => Math.max(0, i - 1))} className="px-4 bg-muted text-muted-foreground rounded-xl active:scale-95 transition">
             <Minus size={18} />
+          </button>
+          <button onClick={() => setIntake(0)} className="px-3 bg-muted text-muted-foreground rounded-xl text-xs font-bold active:scale-95 transition" title="Reset today's count">
+            Reset
           </button>
         </div>
 

@@ -100,3 +100,6 @@
   0% { transform: scale(0.6); opacity: .8; }
   100% { transform: scale(1.8); opacity: 0; }
 }
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}

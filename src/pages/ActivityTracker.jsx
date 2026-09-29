@@ -7,7 +7,6 @@ export default function ActivityTracker() {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [distance, setDistance] = useState(0);
   const [usingSensor, setUsingSensor] = useState(false);
   const intervalRef = useRef(null);
   const accelRef = useRef(null);
@@ -28,35 +27,40 @@ export default function ActivityTracker() {
   // Step detection via accelerometer
   useEffect(() => {
     if (!running || !('DeviceMotionEvent' in window)) return;
-    let permission = Promise.resolve();
-    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-      permission = DeviceMotionEvent.requestPermission();
-    }
-    permission.then((res) => {
-      if (res === 'denied' || res === undefined && false) return;
-      setUsingSensor(true);
-      const handler = (e) => {
-        const mag = Math.sqrt(
-          (e.accelerationIncludingGravity?.x || 0) ** 2 +
-          (e.accelerationIncludingGravity?.y || 0) ** 2 +
-          (e.accelerationIncludingGravity?.z || 0) ** 2
-        );
-        const now = Date.now();
-        if (mag > 12 && now - lastPeak.current > 300) {
-          lastPeak.current = now;
-          setSteps((s) => s + 1);
-        }
-      };
-      window.addEventListener('devicemotion', handler);
-      accelRef.current = handler;
-    });
+    setUsingSensor(true);
+    const handler = (e) => {
+      const mag = Math.sqrt(
+        (e.accelerationIncludingGravity?.x || 0) ** 2 +
+        (e.accelerationIncludingGravity?.y || 0) ** 2 +
+        (e.accelerationIncludingGravity?.z || 0) ** 2
+      );
+      const now = Date.now();
+      if (mag > 12 && now - lastPeak.current > 300) {
+        lastPeak.current = now;
+        setSteps((s) => s + 1);
+      }
+    };
+    window.addEventListener('devicemotion', handler);
+    accelRef.current = handler;
+
     return () => {
       if (accelRef.current) window.removeEventListener('devicemotion', accelRef.current);
       setUsingSensor(false);
     };
   }, [running]);
 
-  const start = () => { setRunning(true); setSteps(0); setElapsed(0); };
+  const start = async () => {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        await DeviceMotionEvent.requestPermission();
+      } catch (err) {
+        console.warn('Motion permission notice:', err);
+      }
+    }
+    setRunning(true);
+    setSteps(0);
+    setElapsed(0);
+  };
   const stop = () => setRunning(false);
   const addSteps = (n) => setSteps((s) => Math.max(0, s + n));
 

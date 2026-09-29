@@ -1,52 +1,70 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  Music, Play, Pause, SkipBack, SkipForward, Plus, X, Upload, ListMusic, Radio, ArrowLeft
+  Music, Play, Pause, SkipBack, SkipForward, Plus, X, Upload, ListMusic, Radio, ArrowLeft, Edit2
 } from 'lucide-react';
+import {
+  getSavedUserTracks,
+  saveUserTrack,
+  deleteUserTrack,
+  updateUserTrackName,
+} from '@/lib/musicDb';
 
 const defaultTrailTracks = [
   {
+    id: 'default_1',
     name: 'Mountain Ridge Ambient.mp3',
     url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=ambient-piano-amp-strings-10711.mp3',
     duration: '2:45',
-    category: 'Relaxing'
+    category: 'Relaxing',
+    isUserUploaded: false,
   },
   {
+    id: 'default_2',
     name: 'Pine Forest Stream & Birds.mp3',
     url: 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_12b0c7443c.mp3?filename=forest-with-small-river-birds-and-nature-field-recording-6735.mp3',
     duration: '3:12',
-    category: 'Nature Sounds'
+    category: 'Nature Sounds',
+    isUserUploaded: false,
   },
   {
+    id: 'default_3',
     name: 'Summit Ascent Energy.mp3',
     url: 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=inspiring-cinematic-ambient-116199.mp3',
     duration: '2:18',
-    category: 'Hiking Focus'
+    category: 'Hiking Focus',
+    isUserUploaded: false,
   }
 ];
 
 export default function MusicMode({ onClose }) {
-  const [tracks, setTracks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('trekquest_tracks');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      return defaultTrailTracks;
-    } catch {
-      return defaultTrailTracks;
-    }
-  });
-
+  const [tracks, setTracks] = useState(defaultTrailTracks);
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTimeStr, setCurrentTimeStr] = useState('0:00');
   const [durationStr, setDurationStr] = useState('0:00');
-  const [isMuted, setIsMuted] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  const [uploadToast, setUploadToast] = useState('');
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Load permanently saved user tracks from IndexedDB on startup
+  useEffect(() => {
+    let activeMount = true;
+    getSavedUserTracks().then((saved) => {
+      if (activeMount) {
+        if (saved && saved.length > 0) {
+          // Put user's permanently saved tracks at the top
+          setTracks([...saved, ...defaultTrailTracks]);
+        } else {
+          setTracks(defaultTrailTracks);
+        }
+      }
+    });
+    return () => {
+      activeMount = false;
+    };
+  }, []);
 
   // Take over the whole screen and lock body scroll completely to prevent conflicts
   useEffect(() => {
@@ -56,12 +74,6 @@ export default function MusicMode({ onClose }) {
       document.body.style.overflow = originalOverflow;
     };
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('trekquest_tracks', JSON.stringify(tracks));
-    } catch {}
-  }, [tracks]);
 
   const active = tracks[current] || tracks[0];
 
@@ -92,38 +104,68 @@ export default function MusicMode({ onClose }) {
     setCurrent((c) => (c - 1 + tracks.length) % tracks.length);
   };
 
-  const handleFileUpload = (e) => {
+  // Upload user's music file: keeps the EXACT original name, stores permanently in IndexedDB
+  const handleFileUpload = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newTracks = [];
+    const savedTracks = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      // Keep exact original file name - no renaming allowed!
-      const originalFileName = file.name;
-      const objectUrl = URL.createObjectURL(file);
-      newTracks.push({
-        name: originalFileName,
-        url: objectUrl,
-        category: 'Local Audio',
-      });
+      // EXACT original file name — the app will never rename or change this!
+      const exactFileName = file.name;
+      try {
+        const saved = await saveUserTrack({
+          name: exactFileName,
+          file: file,
+          category: 'My Music',
+        });
+        savedTracks.push(saved);
+      } catch (err) {
+        console.error('Failed to store audio file:', exactFileName, err);
+      }
     }
 
-    setTracks((prev) => [...prev, ...newTracks]);
-    if (!playing) {
-      setCurrent(tracks.length);
+    if (savedTracks.length > 0) {
+      setTracks((prev) => [...savedTracks, ...prev]);
+      setCurrent(0);
       setPlaying(true);
+      setUploadToast(`Saved "${savedTracks[0].name}" permanently`);
+      setTimeout(() => setUploadToast(''), 3500);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
-  const removeTrack = (e, idx) => {
+  // Delete track: permanently removes user track from IndexedDB
+  const removeTrack = async (e, idx) => {
     e.stopPropagation();
+    const trackToRemove = tracks[idx];
+    if (trackToRemove?.isUserUploaded && trackToRemove.id) {
+      await deleteUserTrack(trackToRemove.id);
+    }
     setTracks((t) => t.filter((_, i) => i !== idx));
     if (idx === current) {
       setPlaying(false);
       setCurrent(0);
     } else if (idx < current) {
       setCurrent((c) => c - 1);
+    }
+  };
+
+  // Optional: User can rename their own track if THEY choose to (app will never auto-rename)
+  const handleUserRename = async (e, track) => {
+    e.stopPropagation();
+    if (!track.isUserUploaded) return;
+    const newName = window.prompt('Rename your music track:', track.name);
+    if (newName && newName.trim() && newName.trim() !== track.name) {
+      const trimmed = newName.trim();
+      await updateUserTrackName(track.id, trimmed);
+      setTracks((prev) =>
+        prev.map((t) => (t.id === track.id ? { ...t, name: trimmed } : t))
+      );
     }
   };
 
@@ -334,16 +376,35 @@ export default function MusicMode({ onClose }) {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold truncate">{t.name}</p>
-                    <p className="text-[10px] text-slate-400">{t.category || 'Trail Audio'}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-slate-400">{t.category || 'Trail Audio'}</span>
+                      {t.isUserUploaded && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                          Stored Offline
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <button
-                  onClick={(e) => removeTrack(e, idx)}
-                  className="p-1.5 text-slate-400 hover:text-red-400 active:scale-90 shrink-0"
-                >
-                  <X size={15} />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {t.isUserUploaded && (
+                    <button
+                      onClick={(e) => handleUserRename(e, t)}
+                      className="p-1.5 text-slate-400 hover:text-purple-300 active:scale-90"
+                      title="Rename track"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => removeTrack(e, idx)}
+                    className="p-1.5 text-slate-400 hover:text-red-400 active:scale-90"
+                    title="Delete track"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -354,6 +415,13 @@ export default function MusicMode({ onClose }) {
           >
             <Plus size={16} /> Add Songs From Phone
           </button>
+        </div>
+      )}
+
+      {/* Upload Toast */}
+      {uploadToast && (
+        <div className="absolute top-16 inset-x-0 mx-auto w-fit z-50 px-4 py-2 rounded-full bg-emerald-950/90 text-emerald-200 border border-emerald-500/50 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <span>{uploadToast}</span>
         </div>
       )}
     </div>

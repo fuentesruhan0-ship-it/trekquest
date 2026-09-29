@@ -113,7 +113,7 @@ export default function Profile() {
                   <Edit3 size={13} />
                 </button>
               </div>
-              <p className="text-xs text-white/70 truncate">{user?.email || 'Logged In via Clerk'}</p>
+              <p className="text-xs text-white/70 truncate">{user?.email || 'Active Hiker Profile'}</p>
               <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[10px] font-bold text-emerald-300">
                 <Sparkles size={10} /> Trail Explorer
               </div>
@@ -197,7 +197,7 @@ export default function Profile() {
         </button>
 
         <p className="text-center text-xs text-muted-foreground pt-1">
-          Trek Quest • Authenticated with Clerk • v1.0.0
+          Trek Quest • v1.0.0
         </p>
       </div>
 
