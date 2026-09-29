@@ -6,15 +6,17 @@ import 'leaflet/dist/leaflet.css';
 import {
   Map as MapIcon, Play, Square, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
   X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
-  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Camera, Users
+  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Camera, Users, Search
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
 import PlanRouteModal from '@/components/PlanRouteModal';
+import HikeInformationCard from '@/components/HikeInformationCard';
 import { useAuth } from '@/lib/AuthContext';
 import CameraPlantScanner from '@/components/CameraPlantScanner';
 import MusicMode from '@/pages/Music';
 import { base44 } from '@/api/base44Client';
+import { searchBroadPlaces } from '@/lib/philippinePlaces';
 
 // Custom Map Markers
 // Avatar icon is created dynamically inside the component via createAvatarMapIcon
@@ -88,6 +90,19 @@ function RecenterMap({ position }) {
   return null;
 }
 
+function FitRouteBounds({ destination, startPoint }) {
+  const map = useMap();
+  useEffect(() => {
+    if (destination && startPoint) {
+      try {
+        const bounds = L.latLngBounds([startPoint, [destination.lat, destination.lng]]);
+        map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+      } catch {}
+    }
+  }, [destination?.lat, destination?.lng, map]);
+  return null;
+}
+
 function MapClickHandler({ onClick }) {
   useMapEvents({ click: onClick });
   return null;
@@ -143,6 +158,14 @@ export default function MapPage() {
   const [showWeatherDrawer, setShowWeatherDrawer] = useState(false);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showPlanRouteModal, setShowPlanRouteModal] = useState(false);
+
+  // Broad Search & Hike Information Guide
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedDestination, setSelectedDestination] = useState(null);
+  const [showHikeInfo, setShowHikeInfo] = useState(false);
+  const searchTimeoutRef = useRef(null);
 
   // Compass state
   const [compassHeading, setCompassHeading] = useState(42);
@@ -327,17 +350,70 @@ export default function MapPage() {
     const lng = parseFloat(searchParams.get('lng'));
     const destName = searchParams.get('destName');
     if (!isNaN(lat) && !isNaN(lng)) {
-      setWaypoints([
-        {
-          id: 'dest_peak',
-          name: destName || 'Summit Peak',
-          lat,
-          lng,
-          isDest: true,
-        },
-      ]);
+      const destObj = {
+        id: 'dest_peak',
+        name: destName || 'Summit Peak',
+        lat,
+        lng,
+        isDest: true,
+        type: 'Mountain Peak',
+        region: 'Philippines',
+      };
+      setWaypoints([destObj]);
+      setSelectedDestination(destObj);
+      setShowHikeInfo(true);
     }
   }, [searchParams]);
+
+  // ── BROAD SEARCH: Immediate letter-matching + Nominatim places ─────
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    searchBroadPlaces(q).then((instant) => {
+      setSearchResults(instant);
+    });
+
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const fullResults = await searchBroadPlaces(q);
+        setSearchResults(fullResults);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 200);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [searchQuery]);
+
+  // Destination selection (via Search, Plan Route Modal, or Peak Marker)
+  const handleSelectDestination = (dest) => {
+    setSelectedDestination(dest);
+    const newWp = {
+      id: `dest_${Date.now()}`,
+      name: dest.name,
+      lat: dest.lat,
+      lng: dest.lng,
+      isDest: true,
+      type: dest.type,
+      region: dest.region,
+    };
+    setWaypoints((prev) => [...prev.filter((w) => !w.isDest), newWp]);
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowPlanRouteModal(false);
+    setShowHikeInfo(true);
+    setLocationToast(`📍 Destination set: ${dest.name}`);
+    setTimeout(() => setLocationToast(''), 3000);
+  };
 
   // Live Continuous High-Accuracy GPS Tracking
   useEffect(() => {
@@ -580,6 +656,7 @@ export default function MapPage() {
           {/* Layer 1: Realistic Satellite View (Esri World Imagery) */}
           {mapStyle === 'satellite' && (
             <TileLayer
+              key="satellite"
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
               attribution="Tiles &copy; Esri World Imagery"
               maxZoom={19}
@@ -589,6 +666,7 @@ export default function MapPage() {
           {/* Layer 2: Mountain Topographic (OpenTopoMap) */}
           {mapStyle === 'topo' && (
             <TileLayer
+              key="topo"
               url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenTopoMap"
               maxZoom={17}
@@ -598,6 +676,7 @@ export default function MapPage() {
           {/* Layer 3: Outdoor Street/Trail (OpenStreetMap) */}
           {mapStyle === 'streets' && (
             <TileLayer
+              key="streets"
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap"
               maxZoom={19}
@@ -606,6 +685,7 @@ export default function MapPage() {
 
           <MapClickHandler onClick={handleMapClick} />
           {position && <RecenterMap position={position} />}
+          <FitRouteBounds destination={selectedDestination} startPoint={startPoint} />
 
           {/* User Live GPS Marker (Red Dot) */}
           {position && (
@@ -637,20 +717,27 @@ export default function MapPage() {
               position={[wp.lat, wp.lng]}
               icon={waypointIcon(wp.name, wp.isDest)}
               eventHandlers={{
-                click: () => setEditingWaypoint(wp),
+                click: () => {
+                  if (wp.isDest) {
+                    setSelectedDestination(wp);
+                    setShowHikeInfo(true);
+                  } else {
+                    setEditingWaypoint(wp);
+                  }
+                },
               }}
             />
           ))}
 
-          {/* Planned Route Line */}
+          {/* Planned Route Line (Connecting Start / GPS to Waypoints & Destination) */}
           {routePoints.length >= 2 && (
             <Polyline
               positions={routePoints}
               pathOptions={{
                 color: mapStyle === 'satellite' ? '#38bdf8' : '#0284c7',
-                weight: 4,
+                weight: 5,
                 dashArray: '8, 8',
-                opacity: 0.9,
+                opacity: 0.95,
               }}
             />
           )}
@@ -689,60 +776,99 @@ export default function MapPage() {
           )}
         </MapContainer>
 
-        {/* Top Controls: Hamburger Menu, Style Switcher & Saved Routes */}
-        <div className="absolute top-4 inset-x-4 z-[1000] flex items-center justify-between pointer-events-none">
-          {/* Left side: Hamburger button + Layer Style Switcher */}
-          <div className="flex items-center gap-2 pointer-events-auto">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-2.5 rounded-2xl bg-black/80 hover:bg-black text-white border border-white/20 shadow-xl backdrop-blur-md cursor-pointer active:scale-90 transition"
-              title="Open Menu"
-            >
-              <Menu size={20} />
-            </button>
+        {/* Top Controls: Hamburger Menu, Broad Location Search Bar & Other Hikers / Routes */}
+        <div className="absolute top-4 inset-x-4 z-[1000] flex items-center gap-2 pointer-events-none">
+          {/* Left side: Hamburger button */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="w-11 h-11 rounded-2xl bg-black/80 hover:bg-black text-white border border-white/20 shadow-xl backdrop-blur-md cursor-pointer active:scale-90 transition flex items-center justify-center shrink-0 pointer-events-auto"
+            title="Open Menu"
+          >
+            <Menu size={20} />
+          </button>
 
-            {/* Layer Style Switcher */}
-            <div className="flex bg-black/75 backdrop-blur-md rounded-2xl p-1 border border-white/20 shadow-xl">
-              <button
-                onClick={() => setMapStyle('satellite')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                  mapStyle === 'satellite' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                🛰️ Satellite
-              </button>
-              <button
-                onClick={() => setMapStyle('topo')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                  mapStyle === 'topo' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                🏔️ Topo
-              </button>
-              <button
-                onClick={() => setMapStyle('streets')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                  mapStyle === 'streets' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                🗺️ Outdoor
-              </button>
+          {/* Broad Location Search Bar (Places, Cities, Barangays, Trails) */}
+          <div className="relative flex-1 pointer-events-auto">
+            <div className="w-full bg-black/85 hover:bg-black/95 backdrop-blur-md text-white rounded-full px-4 py-2.5 flex items-center justify-between border border-white/20 shadow-2xl transition">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search place, city, barangay, or trail…"
+                className="bg-transparent text-xs text-white placeholder-slate-400 focus:outline-none w-full pr-2"
+              />
+              {isSearching ? (
+                <RefreshCw size={16} className="text-slate-400 animate-spin shrink-0" />
+              ) : searchQuery ? (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-400 hover:text-white shrink-0"
+                >
+                  <X size={16} />
+                </button>
+              ) : (
+                <Search size={16} className="text-slate-400 shrink-0" />
+              )}
             </div>
+
+            {/* Broad Search Results Dropdown */}
+            {searchResults.length > 0 && (
+              <div className="absolute top-full mt-2 inset-x-0 bg-slate-900/95 border border-white/20 rounded-3xl p-2.5 shadow-2xl backdrop-blur-2xl max-h-72 overflow-y-auto space-y-1.5 z-[1500]">
+                <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold text-slate-400 border-b border-white/10 pb-1">
+                  <span>PLACES &amp; DESTINATIONS</span>
+                  <span>{searchResults.length} matching</span>
+                </div>
+                {searchResults.map((m, i) => {
+                  const dist = position ? haversine(position, [m.lat, m.lng]) : 0;
+                  const getBadge = (t) => {
+                    if (t === 'Barangay') return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+                    if (t === 'City') return 'bg-blue-500/20 text-blue-300 border-blue-500/40';
+                    if (t === 'Municipality') return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40';
+                    if (t === 'Mountain Peak') return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+                    return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
+                  };
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => handleSelectDestination(m)}
+                      className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/15 active:scale-[0.99] transition cursor-pointer flex items-center justify-between text-white group"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-xs text-white group-hover:text-emerald-400 transition truncate">
+                            {m.name}
+                          </p>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${getBadge(m.type)}`}>
+                            {m.type || 'Location'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 truncate">{m.region}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
+                          {dist > 0 ? `${dist.toFixed(1)} km` : 'Local'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          <div className="flex gap-2 pointer-events-auto">
+          <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
             {/* Other Users Toggle Button with count badge */}
             <div className="relative">
               <button
                 onClick={() => setShowOtherUsers((v) => !v)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md shadow-2xl border transition cursor-pointer active:scale-90 ${
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-2xl border transition cursor-pointer active:scale-90 ${
                   showOtherUsers
                     ? 'bg-violet-600/90 border-violet-400 text-white'
                     : 'bg-black/80 border-white/20 text-slate-400 hover:text-white'
                 }`}
                 title={showOtherUsers ? 'Hide other hikers on map' : 'Show other hikers on map'}
               >
-                <Users size={18} />
+                <Users size={16} />
               </button>
               {otherUsers.length > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center border border-black shadow">
@@ -753,12 +879,49 @@ export default function MapPage() {
 
             <button
               onClick={() => setShowSavedRoutes(true)}
-              className="px-3.5 py-2.5 rounded-2xl bg-black/80 hover:bg-black text-white text-xs font-bold border border-white/20 shadow-xl backdrop-blur-md flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
+              className="h-10 px-3 rounded-2xl bg-black/80 hover:bg-black text-white text-xs font-bold border border-white/20 shadow-xl backdrop-blur-md flex items-center gap-1.5 active:scale-95 transition cursor-pointer"
             >
-              <Navigation size={14} className="text-emerald-400" />
-              <span>Routes ({savedRoutes.length})</span>
+              <Navigation size={13} className="text-emerald-400" />
+              <span className="hidden sm:inline">Routes</span> ({savedRoutes.length})
             </button>
           </div>
+        </div>
+
+        {/* ── THREE FULLY WORKING MAP CHOICES SWITCHER ───────────────────────── */}
+        <div className="absolute top-18 left-4 z-[990] flex bg-black/80 backdrop-blur-md rounded-2xl p-1 border border-white/20 shadow-2xl pointer-events-auto">
+          <button
+            onClick={() => setMapStyle('satellite')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              mapStyle === 'satellite'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-300 hover:text-white'
+            }`}
+            title="Realistic Satellite Imagery"
+          >
+            🛰️ Satellite
+          </button>
+          <button
+            onClick={() => setMapStyle('topo')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              mapStyle === 'topo'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-300 hover:text-white'
+            }`}
+            title="Mountain Topographic Contours"
+          >
+            🏔️ Topo
+          </button>
+          <button
+            onClick={() => setMapStyle('streets')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              mapStyle === 'streets'
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-300 hover:text-white'
+            }`}
+            title="Outdoor Street & Trail View"
+          >
+            🗺️ Outdoor
+          </button>
         </div>
 
         {/* Location Toast Notification */}
@@ -824,7 +987,7 @@ export default function MapPage() {
         </div>
 
         {/* Starting Point Mode Toggle Bar */}
-        <div className="absolute top-18 left-4 right-20 sm:right-auto sm:max-w-md z-[990] flex items-center justify-between bg-black/70 backdrop-blur-md border border-white/15 rounded-2xl px-3 py-2 shadow-lg text-white">
+        <div className="absolute top-32 left-4 right-20 sm:right-auto sm:max-w-md z-[990] flex items-center justify-between bg-black/75 backdrop-blur-md border border-white/15 rounded-2xl px-3 py-2 shadow-lg text-white">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-semibold text-slate-300">Start from:</span>
             <button
@@ -942,19 +1105,57 @@ export default function MapPage() {
         </div>
       )}
 
-        {/* 4. Bottom Weather & Plan a Route Drawer (Matches Picture 1 & 2) */}
-        <WeatherPlanDrawer
-          isOpen={showWeatherDrawer}
-          onOpen={() => setShowWeatherDrawer(true)}
-          onClose={() => setShowWeatherDrawer(false)}
-          onOpenWeather={() => setShowWeatherModal(true)}
-          onOpenPlanRoute={() => setShowPlanRouteModal(true)}
-          temp={24}
-          condition="Partly cloudy"
-          high={31}
-          low={22}
-          locationName="Current location"
-        />
+        {/* ── HIKE INFORMATION GUIDE CARD ───────────────────────────────── */}
+        {selectedDestination && showHikeInfo && (
+          <HikeInformationCard
+            destination={selectedDestination}
+            currentPosition={startPoint}
+            isTracking={tracking}
+            elapsedSeconds={elapsedSeconds}
+            onStartTracking={() => {
+              setTracking(true);
+              setTrackPath(position ? [position] : []);
+              setLocationToast('🚶 Live Hike Tracking Started!');
+              setTimeout(() => setLocationToast(''), 3000);
+            }}
+            onStopTracking={() => {
+              setTracking(false);
+              setLocationToast('⏹️ Hike Tracking Stopped');
+              setTimeout(() => setLocationToast(''), 3000);
+            }}
+            onRecenterRoute={() => {
+              if (startPoint && selectedDestination) {
+                setPosition(startPoint);
+              }
+            }}
+            onClearRoute={() => {
+              setSelectedDestination(null);
+              setWaypoints((prev) => prev.filter((w) => !w.isDest));
+              setShowHikeInfo(false);
+              setTracking(false);
+              setTrackPath([]);
+              setLocationToast('Route cleared');
+              setTimeout(() => setLocationToast(''), 2000);
+            }}
+            onClose={() => setShowHikeInfo(false)}
+          />
+        )}
+
+        {/* 4. Bottom Weather & Plan a Route Drawer (Shown when hike info card is closed) */}
+        {!showHikeInfo && (
+          <WeatherPlanDrawer
+            isOpen={showWeatherDrawer}
+            onOpen={() => setShowWeatherDrawer(true)}
+            onClose={() => setShowWeatherDrawer(false)}
+            onOpenWeather={() => setShowWeatherModal(true)}
+            onOpenPlanRoute={() => setShowPlanRouteModal(true)}
+            temp={24}
+            condition="Partly cloudy"
+            high={31}
+            low={22}
+            locationName={selectedDestination?.name || 'Current location'}
+          />
+        )}
       </div>
 
       {/* Weather Screen Modal (Matches Picture 4) */}
@@ -962,21 +1163,11 @@ export default function MapPage() {
         <WeatherModal onClose={() => setShowWeatherModal(false)} />
       )}
 
-      {/* Plan a Route Screen Modal (Matches Picture 3) */}
+      {/* Plan a Route Screen Modal (Directs straight to Hike Information!) */}
       {showPlanRouteModal && (
         <PlanRouteModal
           onClose={() => setShowPlanRouteModal(false)}
-          onStartRoute={(dest) => {
-            const newWp = {
-              id: `dest_${Date.now()}`,
-              name: dest.name,
-              lat: dest.lat,
-              lng: dest.lng,
-              isDest: true,
-            };
-            setWaypoints((prev) => [...prev, newWp]);
-            setPosition([dest.lat, dest.lng]);
-          }}
+          onStartRoute={handleSelectDestination}
         />
       )}
 
