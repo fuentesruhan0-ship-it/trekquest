@@ -12,6 +12,8 @@ import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
 import PlanRouteModal from '@/components/PlanRouteModal';
 import HikeInformationCard from '@/components/HikeInformationCard';
+import ActiveHikeHUD from '@/components/ActiveHikeHUD';
+import HikePreStartModal from '@/components/HikePreStartModal';
 import { useAuth } from '@/lib/AuthContext';
 import CameraPlantScanner from '@/components/CameraPlantScanner';
 import MusicMode from '@/pages/Music';
@@ -138,6 +140,7 @@ export default function MapPage() {
 
   // Active Hike Tracking
   const [tracking, setTracking] = useState(false);
+  const [activeHikeDestination, setActiveHikeDestination] = useState(null); // destination passed to ActiveHikeHUD
   const [trackPath, setTrackPath] = useState([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [capturedPhoto, setCapturedPhoto] = useState(null);
@@ -165,6 +168,7 @@ export default function MapPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [showHikeInfo, setShowHikeInfo] = useState(false);
+  const [showHikePreStart, setShowHikePreStart] = useState(false); // NEW: cinematic info screen before hike
   const searchTimeoutRef = useRef(null);
 
   // Compass state
@@ -395,8 +399,18 @@ export default function MapPage() {
   }, [searchQuery]);
 
   // Destination selection (via Search, Plan Route Modal, or Peak Marker)
+  // Now shows HikePreStartModal (cinematic info screen) instead of jumping straight to HikeInformationCard
   const handleSelectDestination = (dest) => {
-    setSelectedDestination(dest);
+    const distKm = position
+      ? Math.sqrt(
+          Math.pow(position[0] - dest.lat, 2) +
+          Math.pow(position[1] - dest.lng, 2)
+        ) * 111
+      : parseFloat(dest.distanceKm || 5);
+    const estHours = Math.max(0.4, distKm / 3.5).toFixed(1);
+    const fullDest = { ...dest, distanceKm: distKm.toFixed(2), estHours };
+
+    setSelectedDestination(fullDest);
     const newWp = {
       id: `dest_${Date.now()}`,
       name: dest.name,
@@ -410,9 +424,21 @@ export default function MapPage() {
     setSearchQuery('');
     setSearchResults([]);
     setShowPlanRouteModal(false);
-    setShowHikeInfo(true);
+    setShowHikeInfo(false);
+    setShowHikePreStart(true); // Show the cinematic info screen FIRST
     setLocationToast(`📍 Destination set: ${dest.name}`);
     setTimeout(() => setLocationToast(''), 3000);
+  };
+
+  // Called from HikePreStartModal START button — launches the ActiveHikeHUD
+  const handleStartHikeFromPreStart = (dest) => {
+    setShowHikePreStart(false);
+    setActiveHikeDestination(dest);
+    setTracking(true);
+    setTrackPath(position ? [position] : []);
+    setShowHikeInfo(false);
+    setLocationToast('🚶 Live Hike Started! Follow the blue dashed line.');
+    setTimeout(() => setLocationToast(''), 4000);
   };
 
   // Live Continuous High-Accuracy GPS Tracking
@@ -1021,105 +1047,41 @@ export default function MapPage() {
           )}
         </div>
 
-        {/* Floating Active Hike HUD / Bottom Toolbelt (Shown when tracking is active) */}
-        {tracking && (
-          <div className="absolute bottom-24 inset-x-4 z-[1000] pointer-events-none">
-          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/20 rounded-3xl p-4 shadow-2xl text-white pointer-events-auto space-y-3">
-            {/* Hike Stats Summary */}
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Total Distance</span>
-                <p className="text-xl font-extrabold text-white">
-                  {totalDistanceKm.toFixed(2)} <span className="text-xs font-normal text-slate-400">km</span>
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400">Hike Timer</span>
-                <p className="text-xl font-extrabold text-emerald-400 font-mono">
-                  {formatTimer(elapsedSeconds)}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {!tracking ? (
-                  <button
-                    onClick={() => {
-                      setTracking(true);
-                      setTrackPath(position ? [position] : []);
-                    }}
-                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition"
-                  >
-                    <Play size={14} /> Start Hike
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setTracking(false)}
-                    className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-lg active:scale-95 transition"
-                  >
-                    <Square size={14} /> Stop
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Active Hike Toolbelt (Plant Scanner, Camera, Notes & Emergency) */}
-            <div className="grid grid-cols-4 gap-2 pt-1">
-              {/* 1. Plant Scanner Button during hike */}
-              <button
-                onClick={() => navigate('/plant-scanner')}
-                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 active:scale-95 transition"
-              >
-                <Leaf size={18} />
-                <span className="text-[10px] font-bold">Plant Scan</span>
-              </button>
-
-              {/* 2. Camera Button with Instant Pin Feedback */}
-              <button
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-sky-300 hover:bg-sky-500/30 active:scale-95 transition"
-              >
-                <Camera size={18} />
-                <span className="text-[10px] font-bold">Snap Trail</span>
-              </button>
-
-              {/* 3. Trail Notes & Journal Entry (Right Next to Emergency!) */}
-              <button
-                onClick={() => setShowNoteModal(true)}
-                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 active:scale-95 transition"
-              >
-                <BookOpen size={18} />
-                <span className="text-[10px] font-bold">Add Note</span>
-              </button>
-
-              {/* 4. Emergency Card Button */}
-              <button
-                onClick={() => navigate('/emergency')}
-                className="flex flex-col items-center justify-center gap-1 py-2 px-1 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 active:scale-95 transition"
-              >
-                <HeartPulse size={18} />
-                <span className="text-[10px] font-bold">Emergency</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        {/* ── ACTIVE HIKE HUD OVERLAY (Full Featured — replaces old basic panel) ── */}
+        {tracking && activeHikeDestination && (
+          <ActiveHikeHUD
+            destination={activeHikeDestination}
+            currentPosition={position}
+            onStopHike={() => {
+              setTracking(false);
+              setActiveHikeDestination(null);
+              setTrackPath([]);
+              setElapsedSeconds(0);
+              setLocationToast('⏹️ Hike ended');
+              setTimeout(() => setLocationToast(''), 3000);
+            }}
+            onOpenScanner={() => setShowScannerModal(true)}
+            onOpenMusic={() => setShowMusicModal(true)}
+            onOpenCompass={() => setShowCompassModal(true)}
+            onOpenEmergency={() => { setSidebarOpen(false); navigate('/emergency'); }}
+          />
+        )}
 
         {/* ── HIKE INFORMATION GUIDE CARD ───────────────────────────────── */}
-        {selectedDestination && showHikeInfo && (
+        {selectedDestination && showHikeInfo && !tracking && (
           <HikeInformationCard
             destination={selectedDestination}
             currentPosition={startPoint}
             isTracking={tracking}
             elapsedSeconds={elapsedSeconds}
             onStartTracking={() => {
-              setTracking(true);
-              setTrackPath(position ? [position] : []);
-              setLocationToast('🚶 Live Hike Tracking Started!');
-              setTimeout(() => setLocationToast(''), 3000);
+              // Show the cinematic HikePreStartModal before actually starting
+              setShowHikeInfo(false);
+              setShowHikePreStart(true);
             }}
             onStopTracking={() => {
               setTracking(false);
+              setActiveHikeDestination(null);
               setLocationToast('⏹️ Hike Tracking Stopped');
               setTimeout(() => setLocationToast(''), 3000);
             }}
@@ -1133,6 +1095,7 @@ export default function MapPage() {
               setWaypoints((prev) => prev.filter((w) => !w.isDest));
               setShowHikeInfo(false);
               setTracking(false);
+              setActiveHikeDestination(null);
               setTrackPath([]);
               setLocationToast('Route cleared');
               setTimeout(() => setLocationToast(''), 2000);
@@ -1163,11 +1126,24 @@ export default function MapPage() {
         <WeatherModal onClose={() => setShowWeatherModal(false)} />
       )}
 
-      {/* Plan a Route Screen Modal (Directs straight to Hike Information!) */}
+      {/* Plan a Route Screen Modal */}
       {showPlanRouteModal && (
         <PlanRouteModal
           onClose={() => setShowPlanRouteModal(false)}
           onStartRoute={handleSelectDestination}
+        />
+      )}
+
+      {/* ── CINEMATIC HIKE PRE-START INFO SCREEN ──────────────────────── */}
+      {showHikePreStart && selectedDestination && (
+        <HikePreStartModal
+          destination={selectedDestination}
+          currentPosition={position}
+          onClose={() => {
+            setShowHikePreStart(false);
+            setShowHikeInfo(true); // Fall back to bottom card if user closes
+          }}
+          onStartHike={handleStartHikeFromPreStart}
         />
       )}
 
