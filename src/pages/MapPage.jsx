@@ -6,7 +6,8 @@ import 'leaflet/dist/leaflet.css';
 import {
   Map as MapIcon, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
   X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
-  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Users, Search
+  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Users, Search, Download, CloudOff,
+  Target, ArrowUpRight, Eye, ShieldCheck
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
@@ -14,16 +15,16 @@ import PlanRouteModal from '@/components/PlanRouteModal';
 import HikeInformationCard from '@/components/HikeInformationCard';
 import ActiveHikeHUD from '@/components/ActiveHikeHUD';
 import HikePreStartModal from '@/components/HikePreStartModal';
+import OfflineMapModal from '@/components/OfflineMapModal';
 import { useAuth } from '@/lib/AuthContext';
 import CameraPlantScanner from '@/components/CameraPlantScanner';
 import MusicMode from '@/pages/Music';
 import { base44 } from '@/api/base44Client';
-import { searchBroadPlaces } from '@/lib/philippinePlaces';
+import { searchBroadPlaces, calculateBearing, getCompassDirection } from '@/lib/philippinePlaces';
 
-// Custom Map Markers
-// Avatar icon is created dynamically inside the component via createAvatarMapIcon
-function createAvatarMapIcon(photoUrl, initial, isPinging) {
-  const size = isPinging ? 60 : 52;
+// Custom Map Markers with Live Orientation Compass Cone
+function createAvatarMapIcon(photoUrl, initial, isPinging, heading = 0) {
+  const size = isPinging ? 64 : 56;
   const half = size / 2;
   const innerSize = isPinging ? 40 : 36;
   const pulse = isPinging
@@ -34,14 +35,25 @@ function createAvatarMapIcon(photoUrl, initial, isPinging) {
     ? `<img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display='none';this.nextSibling.style.display='flex';" />
        <span style="display:none;width:100%;height:100%;border-radius:50%;background:#059669;color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`
     : `<span style="display:flex;width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);color:white;font-weight:900;font-size:${innerSize * 0.42}px;align-items:center;justify-content:center;">${initial}</span>`;
+  
+  // High-visibility directional heading cone pointing in the direction the hiker is facing
+  const safeHeading = typeof heading === 'number' && !isNaN(heading) ? heading : 0;
+  const coneHtml = `
+    <div style="position:absolute;top:50%;left:50%;width:0;height:0;transform:translate(-50%, -50%) rotate(${safeHeading}deg);pointer-events:none;z-index:1;">
+      <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-bottom:28px solid rgba(16, 185, 129, 0.5);filter:drop-shadow(0 0 6px rgba(16,185,129,0.7));"></div>
+      <div style="position:absolute;bottom:22px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:8px solid #ffffff;"></div>
+    </div>
+  `;
+
   return L.divIcon({
     html: `<div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;">
+      ${coneHtml}
       <div style="position:absolute;inset:0;border-radius:50%;background:${ringColor};${pulse}"></div>
       ${isPinging ? `<div style="position:absolute;inset:8px;border-radius:50%;background:rgba(16,185,129,0.25);animation:pulseRing 2.2s ease-out infinite;"></div>` : ''}
-      <div style="position:relative;width:${innerSize}px;height:${innerSize}px;border-radius:50%;overflow:hidden;border:2.5px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.55);background:#059669;display:flex;align-items:center;justify-content:center;">
+      <div style="position:relative;width:${innerSize}px;height:${innerSize}px;border-radius:50%;overflow:hidden;border:2.5px solid white;box-shadow:0 4px 14px rgba(0,0,0,0.55);background:#059669;display:flex;align-items:center;justify-content:center;z-index:2;">
         ${imgTag}
       </div>
-      <div style="position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid white;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.35));"></div>
+      <div style="position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid white;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.35));z-index:2;"></div>
     </div>`,
     className: '',
     iconSize: [size, size + 7],
@@ -57,7 +69,7 @@ const startIcon = L.divIcon({
 });
 
 const waypointIcon = (label, isDest) => L.divIcon({
-  html: `<div style="padding:4px 8px;background:${isDest ? '#dc2626' : '#d97706'};border:2px solid white;border-radius:12px;color:white;font-weight:bold;font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;gap:4px;">
+  html: `<div style="padding:4px 8px;background:${isDest ? '#dc2626' : '#d97706'};border:2px solid white;border-radius:12px;color:white;font-weight:bold;font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;items-center;gap:4px;">
     <span>${isDest ? '🏁' : '📍'}</span>
     <span>${label}</span>
   </div>`,
@@ -84,11 +96,51 @@ function routeDistance(pts) {
   return d;
 }
 
-function RecenterMap({ position }) {
+function RecenterMap({ position, followUser }) {
   const map = useMap();
   useEffect(() => {
-    if (position) map.flyTo(position, Math.max(map.getZoom(), 15), { duration: 0.8 });
-  }, [position, map]);
+    if (position && followUser) {
+      map.panTo(position, { animate: true, duration: 0.5 });
+    }
+  }, [position, followUser, map]);
+  return null;
+}
+
+function MapControllerInstance({ mapRef, onBoundsChange, onDragStart }) {
+  const map = useMap();
+  useEffect(() => {
+    if (mapRef) mapRef.current = map;
+  }, [map, mapRef]);
+
+  useMapEvents({
+    moveend: () => {
+      if (onBoundsChange) {
+        const b = map.getBounds();
+        onBoundsChange({
+          south: b.getSouth(),
+          west: b.getWest(),
+          north: b.getNorth(),
+          east: b.getEast(),
+        });
+      }
+    },
+    dragstart: () => {
+      if (onDragStart) onDragStart();
+    },
+  });
+
+  useEffect(() => {
+    if (onBoundsChange) {
+      const b = map.getBounds();
+      onBoundsChange({
+        south: b.getSouth(),
+        west: b.getWest(),
+        north: b.getNorth(),
+        east: b.getEast(),
+      });
+    }
+  }, [map, onBoundsChange]);
+
   return null;
 }
 
@@ -174,17 +226,38 @@ export default function MapPage() {
   // Compass state
   const [compassHeading, setCompassHeading] = useState(42);
 
+  // Offline maps & auto-follow tracking state
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+  const [followUser, setFollowUser] = useState(true);
+  const [currentMapBounds, setCurrentMapBounds] = useState(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const mapInstanceRef = useRef(null);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => {
+      setIsOnline(false);
+      setLocationToast('⚡ Offline Mode: Using Cached Satellite & Topo Maps (Satellite GPS active)');
+      setTimeout(() => setLocationToast(''), 4000);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Edit Profile Form
   const [editName, setEditName] = useState(user?.full_name || '');
   const [editPhoto, setEditPhoto] = useState(user?.photo_url || '');
 
-  // Dynamic user avatar map icon — updates whenever photo or locatePing changes
+  // Dynamic user avatar map icon — updates whenever photo, locatePing, or compass heading changes
   const userMapIcon = useMemo(() => {
     const photo = user?.photo_url || '';
     const initial = (user?.full_name || 'H').charAt(0).toUpperCase();
-    return createAvatarMapIcon(photo, initial, locatePing);
-  }, [user?.photo_url, user?.full_name, locatePing]);
+    return createAvatarMapIcon(photo, initial, locatePing, compassHeading);
+  }, [user?.photo_url, user?.full_name, locatePing, compassHeading]);
 
   const defaultSavedRoutes = [
     {
@@ -399,13 +472,17 @@ export default function MapPage() {
   }, [searchQuery]);
 
   // Destination selection (via Search, Plan Route Modal, or Peak Marker)
-  // Now shows HikePreStartModal (cinematic info screen) instead of jumping straight to HikeInformationCard
-  const handleSelectDestination = (dest) => {
-    const distKm = position
-      ? Math.sqrt(
-          Math.pow(position[0] - dest.lat, 2) +
-          Math.pow(position[1] - dest.lng, 2)
-        ) * 111
+  // Accepts destination AND optional user-chosen starting point!
+  const handleSelectDestination = (dest, customStart = null) => {
+    if (customStart && Array.isArray(customStart)) {
+      setCustomStart(customStart);
+      setStartMode('custom');
+      setPosition(customStart);
+    }
+
+    const origin = customStart || (startMode === 'custom' && customStart ? customStart : position);
+    const distKm = origin
+      ? haversine(origin, [dest.lat, dest.lng])
       : parseFloat(dest.distanceKm || 5);
     const estHours = Math.max(0.4, distKm / 3.5).toFixed(1);
     const fullDest = { ...dest, distanceKm: distKm.toFixed(2), estHours };
@@ -426,8 +503,8 @@ export default function MapPage() {
     setShowPlanRouteModal(false);
     setShowHikeInfo(false);
     setShowHikePreStart(true); // Show the cinematic info screen FIRST
-    setLocationToast(`📍 Destination set: ${dest.name}`);
-    setTimeout(() => setLocationToast(''), 3000);
+    setLocationToast(customStart ? `📍 Route planned: Custom Start → ${dest.name}` : `📍 Destination set: ${dest.name}`);
+    setTimeout(() => setLocationToast(''), 3500);
   };
 
   // Called from HikePreStartModal START button — launches the ActiveHikeHUD
@@ -554,10 +631,33 @@ export default function MapPage() {
   };
 
   const startPoint = startMode === 'custom' && customStart ? customStart : position;
-  const routePoints = [
-    startPoint,
-    ...waypoints.map((w) => [w.lat, w.lng]),
-  ].filter(Boolean);
+  const activeDest = activeHikeDestination || selectedDestination || waypoints.find((w) => w.isDest);
+
+  // Live real-time distance and compass bearing from hiker's live position to destination
+  const distToDest = (position && activeDest)
+    ? haversine(position, [activeDest.lat, activeDest.lng])
+    : 0;
+  const bearingToDest = (position && activeDest)
+    ? calculateBearing(position, [activeDest.lat, activeDest.lng])
+    : 0;
+  const cardinalDirection = getCompassDirection(bearingToDest);
+
+  // Continuous trail line: Hiker's Live GPS Coordinates -> Intermediate Waypoints -> Specific Destination
+  const routePoints = useMemo(() => {
+    if (!startPoint) return [];
+    const pts = [startPoint];
+    const intermediates = waypoints.filter((w) => !w.isDest);
+    for (const w of intermediates) {
+      pts.push([w.lat, w.lng]);
+    }
+    if (activeDest) {
+      pts.push([activeDest.lat, activeDest.lng]);
+    } else {
+      const destWp = waypoints.find((w) => w.isDest);
+      if (destWp) pts.push([destWp.lat, destWp.lng]);
+    }
+    return pts.filter(Boolean);
+  }, [startPoint, waypoints, activeDest]);
 
   const totalDistanceKm = routeDistance(tracking ? trackPath : routePoints);
 
@@ -710,17 +810,28 @@ export default function MapPage() {
           )}
 
           <MapClickHandler onClick={handleMapClick} />
-          {position && <RecenterMap position={position} />}
+          <MapControllerInstance
+            mapRef={mapInstanceRef}
+            onBoundsChange={setCurrentMapBounds}
+            onDragStart={() => setFollowUser(false)}
+          />
+          {position && <RecenterMap position={position} followUser={followUser} />}
           <FitRouteBounds destination={selectedDestination} startPoint={startPoint} />
 
-          {/* User Live GPS Marker (Red Dot) */}
+          {/* User Live GPS Marker (Avatar with Orientation Compass Cone) */}
           {position && (
             <Marker position={position} icon={userMapIcon}>
               <Popup>
                 <div className="text-xs font-semibold">
-                  <p className="text-red-600 font-bold">You are here</p>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                  <p className="text-emerald-500 font-bold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    You are here
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
                     {position[0].toFixed(5)}, {position[1].toFixed(5)}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Heading: {compassHeading}° • Satellite GPS Active
                   </p>
                 </div>
               </Popup>
@@ -755,17 +866,29 @@ export default function MapPage() {
             />
           ))}
 
-          {/* Planned Route Line (Connecting Start / GPS to Waypoints & Destination) */}
+          {/* High-Visibility Dual-Layer Trail Guidance Line to Specific Destination */}
           {routePoints.length >= 2 && (
-            <Polyline
-              positions={routePoints}
-              pathOptions={{
-                color: mapStyle === 'satellite' ? '#38bdf8' : '#0284c7',
-                weight: 5,
-                dashArray: '8, 8',
-                opacity: 0.95,
-              }}
-            />
+            <>
+              {/* Layer 1: Wide neon halo for mountain and terrain contrast */}
+              <Polyline
+                positions={routePoints}
+                pathOptions={{
+                  color: mapStyle === 'satellite' ? '#0284c7' : '#047857',
+                  weight: 10,
+                  opacity: 0.5,
+                }}
+              />
+              {/* Layer 2: High-contrast dashed line connecting hiker directly to destination */}
+              <Polyline
+                positions={routePoints}
+                pathOptions={{
+                  color: mapStyle === 'satellite' ? '#38bdf8' : '#10b981',
+                  weight: 5,
+                  dashArray: '10, 10',
+                  opacity: 0.98,
+                }}
+              />
+            </>
           )}
 
           {/* Other Users' Live GPS Markers */}
@@ -883,6 +1006,20 @@ export default function MapPage() {
           </div>
 
           <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
+            {/* Offline Maps Download & Management Button */}
+            <button
+              onClick={() => setShowOfflineModal(true)}
+              className={`h-10 px-2.5 sm:px-3 rounded-2xl flex items-center gap-1.5 text-xs font-bold border shadow-xl backdrop-blur-md active:scale-95 transition cursor-pointer ${
+                !isOnline
+                  ? 'bg-amber-600/90 hover:bg-amber-600 border-amber-400 text-white shadow-amber-900/50'
+                  : 'bg-black/80 hover:bg-black border-white/20 text-emerald-400 hover:text-white'
+              }`}
+              title="Download & Manage Offline Maps"
+            >
+              {!isOnline ? <CloudOff size={14} className="text-white animate-pulse" /> : <Download size={14} />}
+              <span className="hidden sm:inline">Offline</span>
+            </button>
+
             {/* Other Users Toggle Button with count badge */}
             <div className="relative">
               <button
@@ -913,42 +1050,119 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* ── THREE FULLY WORKING MAP CHOICES SWITCHER ───────────────────────── */}
-        <div className="absolute top-18 left-4 z-[990] flex bg-black/80 backdrop-blur-md rounded-2xl p-1 border border-white/20 shadow-2xl pointer-events-auto">
-          <button
-            onClick={() => setMapStyle('satellite')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              mapStyle === 'satellite'
-                ? 'bg-emerald-600 text-white shadow'
-                : 'text-slate-300 hover:text-white'
-            }`}
-            title="Realistic Satellite Imagery"
+        {/* ── THREE FULLY WORKING MAP CHOICES SWITCHER & STATUS ───────────────────────── */}
+        <div className="absolute top-18 left-4 z-[990] flex items-center gap-2 pointer-events-auto">
+          <div className="flex bg-black/80 backdrop-blur-md rounded-2xl p-1 border border-white/20 shadow-2xl">
+            <button
+              onClick={() => setMapStyle('satellite')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                mapStyle === 'satellite'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="Realistic Satellite Imagery"
+            >
+              🛰️ Satellite
+            </button>
+            <button
+              onClick={() => setMapStyle('topo')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                mapStyle === 'topo'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="Mountain Topographic Contours"
+            >
+              🏔️ Topo
+            </button>
+            <button
+              onClick={() => setMapStyle('streets')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                mapStyle === 'streets'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="Outdoor Street & Trail View"
+            >
+              🗺️ Outdoor
+            </button>
+          </div>
+
+          {/* Online / Offline Status Badge */}
+          <div
+            onClick={() => setShowOfflineModal(true)}
+            className="flex items-center gap-1.5 bg-black/80 hover:bg-black/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-white/20 text-[11px] font-bold shadow-xl transition cursor-pointer"
+            title="Map Sync Status (Tap to open Offline Maps)"
           >
-            🛰️ Satellite
-          </button>
-          <button
-            onClick={() => setMapStyle('topo')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              mapStyle === 'topo'
-                ? 'bg-emerald-600 text-white shadow'
-                : 'text-slate-300 hover:text-white'
-            }`}
-            title="Mountain Topographic Contours"
-          >
-            🏔️ Topo
-          </button>
-          <button
-            onClick={() => setMapStyle('streets')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              mapStyle === 'streets'
-                ? 'bg-emerald-600 text-white shadow'
-                : 'text-slate-300 hover:text-white'
-            }`}
-            title="Outdoor Street & Trail View"
-          >
-            🗺️ Outdoor
-          </button>
+            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-ping'}`} />
+            <span className={isOnline ? 'text-slate-300' : 'text-amber-300 font-extrabold'}>
+              {isOnline ? 'Online' : 'Offline Mode'}
+            </span>
+          </div>
         </div>
+
+        {/* ── FLOATING DESTINATION GUIDANCE BANNER (Shows destination name, distance & bearing along the line) ── */}
+        {activeDest && !tracking && (
+          <div className="absolute top-30 inset-x-4 max-w-lg mx-auto z-[995] bg-slate-950/90 backdrop-blur-xl border border-emerald-500/40 rounded-2xl p-3 shadow-2xl text-white pointer-events-auto flex items-center justify-between gap-3 animate-in slide-in-from-top-2">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Mountain size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="font-bold text-xs text-white truncate max-w-[150px] sm:max-w-[210px]">
+                    {activeDest.name}
+                  </p>
+                  <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                    {distToDest.toFixed(2)} km
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-300 flex items-center gap-1">
+                  <Navigation size={10} className="text-emerald-400 rotate-45" />
+                  <span>Bearing {bearingToDest}° {cardinalDirection} • Follow line to summit</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setShowOfflineModal(true)}
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                title="Download route map for offline hiking"
+              >
+                <Download size={11} /> Cache
+              </button>
+              <button
+                onClick={() => {
+                  if (mapInstanceRef.current && position && activeDest) {
+                    const b = L.latLngBounds([position, [activeDest.lat, activeDest.lng]]);
+                    mapInstanceRef.current.fitBounds(b, { padding: [80, 80], maxZoom: 16 });
+                  }
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                title="Zoom to see full line from you to destination"
+              >
+                <Eye size={11} /> Focus
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── FLOATING RECENTER ON ME PILL (Appears when hiker panned the map away) ── */}
+        {!followUser && position && (
+          <button
+            onClick={() => {
+              setFollowUser(true);
+              if (mapInstanceRef.current) {
+                mapInstanceRef.current.flyTo(position, Math.max(mapInstanceRef.current.getZoom(), 15), { duration: 0.8 });
+              }
+            }}
+            className="absolute bottom-24 right-4 z-[1000] px-3.5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl border border-white/20 flex items-center gap-1.5 active:scale-95 transition pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-2"
+          >
+            <Target size={15} />
+            <span>Recenter on Me</span>
+          </button>
+        )}
 
         {/* Location Toast Notification */}
         {locationToast && (
@@ -1064,6 +1278,7 @@ export default function MapPage() {
             onOpenMusic={() => setShowMusicModal(true)}
             onOpenCompass={() => setShowCompassModal(true)}
             onOpenEmergency={() => { setSidebarOpen(false); navigate('/emergency'); }}
+            onOpenOfflineMaps={() => setShowOfflineModal(true)}
           />
         )}
 
@@ -1144,6 +1359,7 @@ export default function MapPage() {
             setShowHikeInfo(true); // Fall back to bottom card if user closes
           }}
           onStartHike={handleStartHikeFromPreStart}
+          onOpenOfflineMaps={() => setShowOfflineModal(true)}
         />
       )}
 
@@ -1511,6 +1727,26 @@ export default function MapPage() {
               <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
 
+            {/* Offline Trail Maps & Caches */}
+            <button
+              onClick={() => {
+                setSidebarOpen(false);
+                setShowOfflineModal(true);
+              }}
+              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-emerald-400 flex items-center justify-center shrink-0">
+                  <Download size={20} />
+                </div>
+                <div>
+                  <span className="font-bold text-sm block">Offline Trail Maps</span>
+                  <span className="text-[10px] text-slate-500">Download for 0-signal hiking</span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
+            </button>
+
             {/* 3. First Aid Guide */}
             <button
               onClick={() => { setSidebarOpen(false); navigate('/first-aid'); }}
@@ -1696,6 +1932,20 @@ export default function MapPage() {
           </div>
         </div>
       )}
+
+      {/* Offline Map Downloader & Cache Manager Modal */}
+      <OfflineMapModal
+        isOpen={showOfflineModal}
+        onClose={() => setShowOfflineModal(false)}
+        currentBounds={currentMapBounds}
+        routePoints={routePoints}
+        destination={activeDest}
+        onJumpToBounds={(b) => {
+          if (mapInstanceRef.current && b) {
+            mapInstanceRef.current.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [40, 40] });
+          }
+        }}
+      />
     </div>
   );
 }

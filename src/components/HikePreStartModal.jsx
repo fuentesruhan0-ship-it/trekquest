@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Mountain, Navigation, Clock, Calendar, CloudSun,
   Footprints, AlertTriangle, Play, X, Wind, Droplets,
-  MapPin, ChevronRight
+  MapPin, ChevronRight, Download
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { haversine } from '@/lib/philippinePlaces';
@@ -36,7 +36,13 @@ async function fetchWeather(lat, lng) {
   }
 }
 
-export default function HikePreStartModal({ destination, currentPosition, onClose, onStartHike }) {
+export default function HikePreStartModal({
+  destination,
+  currentPosition,
+  onClose,
+  onStartHike,
+  onOpenOfflineMaps,
+}) {
   const { user } = useAuth();
   const [weather, setWeather] = useState(null);
   const [starting, setStarting] = useState(false);
@@ -233,6 +239,35 @@ export default function HikePreStartModal({ destination, currentPosition, onClos
                   ? '☀️ High heat advisory. Drink extra water and rest often.'
                   : '✅ Good hiking conditions. Enjoy your trail safely!'}
               </div>
+            )}
+          </div>
+
+          {/* Offline Map Pre-cache Callout */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-950 border border-emerald-500/30 flex items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Download size={18} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>Offline Trail Map</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                    Satellite GPS Ready
+                  </span>
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  Pre-download satellite & topo maps for this trail with 0 phone load needed.
+                </p>
+              </div>
+            </div>
+            {onOpenOfflineMaps && (
+              <button
+                type="button"
+                onClick={onOpenOfflineMaps}
+                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shrink-0 cursor-pointer shadow-lg active:scale-95"
+              >
+                Cache Map
+              </button>
             )}
           </div>
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Square, CheckCircle2, Award, Clock, Footprints, Flame,
   Droplets, Coffee, Compass as CompassIcon, Music,
-  Scan, HeartPulse, Navigation
+  Scan, HeartPulse, Navigation, Download
 } from 'lucide-react';
 import { haversine } from '@/lib/philippinePlaces';
 import { useAuth } from '@/lib/AuthContext';
@@ -58,6 +58,7 @@ export default function ActiveHikeHUD({
   onOpenMusic,
   onOpenEmergency,
   onOpenCompass,
+  onOpenOfflineMaps,
 }) {
   const { user } = useAuth();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -240,21 +241,21 @@ export default function ActiveHikeHUD({
 
   return (
     <>
-      {/* ── TOP ACTIVE HIKE STATUS BAR ─────────────────────────────────── */}
+      {/* ── TOP ACTIVE HIKE STATUS BAR (Semi-Transparent Frosted Glass) ── */}
       <div className="absolute top-4 inset-x-4 max-w-xl mx-auto z-[1500] pointer-events-none animate-in slide-in-from-top-3 duration-300">
-        <div className="bg-black/90 backdrop-blur-xl border border-emerald-500/40 rounded-3xl p-3.5 shadow-2xl text-white pointer-events-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+        <div className="bg-slate-950/50 hover:bg-slate-950/70 backdrop-blur-2xl border border-white/15 rounded-3xl p-3 shadow-2xl text-white pointer-events-auto flex items-center justify-between transition-colors duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400">
                   LIVE HIKE ACTIVE
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">
+                <span className="text-[10px] text-slate-300 font-mono truncate max-w-[130px] sm:max-w-[200px]">
                   • {destination?.name || 'Trail'}
                 </span>
               </div>
-              <p className="text-xl font-extrabold text-white font-mono tracking-tight">
+              <p className="text-lg font-extrabold text-white font-mono tracking-tight leading-tight">
                 {formatTimer(elapsedSeconds)}
               </p>
             </div>
@@ -263,16 +264,16 @@ export default function ActiveHikeHUD({
           <div className="flex items-center gap-2">
             <button
               onClick={handleManualComplete}
-              className="px-3.5 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-2xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-emerald-400/30 cursor-pointer"
             >
-              <CheckCircle2 size={15} />
+              <CheckCircle2 size={14} />
               <span>Reached!</span>
             </button>
             <button
               onClick={onStopHike}
-              className="px-3 py-2 rounded-2xl bg-red-600/90 hover:bg-red-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1"
+              className="px-3 py-1.5 rounded-2xl bg-red-600/80 hover:bg-red-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-red-400/30 cursor-pointer"
             >
-              <Square size={13} />
+              <Square size={12} />
               <span>End</span>
             </button>
           </div>
@@ -316,20 +317,31 @@ export default function ActiveHikeHUD({
         >
           <HeartPulse size={22} className="group-hover:scale-110 transition text-red-500" />
         </button>
+
+        {/* Offline Maps Button */}
+        {onOpenOfflineMaps && (
+          <button
+            onClick={onOpenOfflineMaps}
+            className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-emerald-500/40 active:scale-90 transition cursor-pointer hover:border-emerald-400 group"
+            title="Download & Manage Offline Maps"
+          >
+            <Download size={20} className="group-hover:scale-110 transition text-emerald-400" />
+          </button>
+        )}
       </div>
 
-      {/* ── BOTTOM IN-HIKE HUD (Steps, Calories, Distance Remaining) ──── */}
+      {/* ── BOTTOM IN-HIKE HUD (Steps, Calories, Distance Remaining - Semi-Transparent Frosted Glass) ──── */}
       <div className="absolute bottom-6 inset-x-4 max-w-xl mx-auto z-[1500] pointer-events-none animate-in slide-in-from-bottom-4 duration-300">
-        <div className="bg-slate-950/95 backdrop-blur-2xl border border-white/15 rounded-3xl p-4 shadow-2xl text-white pointer-events-auto space-y-3">
+        <div className="bg-slate-950/50 hover:bg-slate-950/70 backdrop-blur-2xl border border-white/15 rounded-3xl p-3.5 shadow-2xl text-white pointer-events-auto space-y-2.5 transition-colors duration-200">
           {/* Key Metrics Grid */}
           <div className="grid grid-cols-3 gap-2 text-center divide-x divide-white/10">
             {/* 1. Steps Taken (Hardware Sensor + GPS Cadence) */}
             <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 uppercase">
-                <Footprints size={14} className="text-emerald-400" />
-                <span>Steps</span>
+              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
+                <Footprints size={13} className="text-emerald-400" />
+                <span>Steps Counter</span>
               </div>
-              <p className="text-xl font-black text-white font-mono mt-0.5">
+              <p className="text-lg sm:text-xl font-black text-white font-mono mt-0.5">
                 {totalSteps.toLocaleString()}
               </p>
               <span className="text-[9px] text-emerald-400/80 font-medium">Sensor Active</span>
@@ -337,38 +349,38 @@ export default function ActiveHikeHUD({
 
             {/* 2. Calories Burned */}
             <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 uppercase">
-                <Flame size={14} className="text-amber-400" />
-                <span>Calories</span>
+              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
+                <Flame size={13} className="text-amber-400" />
+                <span>Burned Calories</span>
               </div>
-              <p className="text-xl font-black text-amber-400 font-mono mt-0.5">
-                {totalCalories} <span className="text-xs font-normal text-slate-400">kcal</span>
+              <p className="text-lg sm:text-xl font-black text-amber-400 font-mono mt-0.5">
+                {totalCalories} <span className="text-[10px] font-normal text-slate-300">kcal</span>
               </p>
               <span className="text-[9px] text-slate-400 font-medium">Est. Burn</span>
             </div>
 
             {/* 3. Distance Remaining */}
             <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 uppercase">
-                <Navigation size={14} className="text-sky-400" />
-                <span>To Dest.</span>
+              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
+                <Navigation size={13} className="text-sky-400" />
+                <span>To Destination</span>
               </div>
-              <p className="text-xl font-black text-sky-400 font-mono mt-0.5">
-                {remainingDistKm.toFixed(2)} <span className="text-xs font-normal text-slate-400">km</span>
+              <p className="text-lg sm:text-xl font-black text-sky-400 font-mono mt-0.5">
+                {remainingDistKm.toFixed(2)} <span className="text-[10px] font-normal text-slate-300">km</span>
               </p>
-              <span className="text-[9px] text-slate-400 font-medium truncate max-w-[85px]">
+              <span className="text-[9px] text-slate-300 font-medium truncate max-w-[95px]">
                 {destination?.name || 'Summit'}
               </span>
             </div>
           </div>
 
           <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs text-slate-300">
-            <span className="text-[11px] flex items-center gap-1 text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] flex items-center gap-1 text-slate-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               Follow blue dashed line to destination
             </span>
-            <span className="text-[11px] font-bold text-emerald-400">
-              {destination?.difficulty || 'Moderate Trail'}
+            <span className="text-[10px] font-bold text-emerald-400">
+              GPS Satellite Tracking
             </span>
           </div>
         </div>

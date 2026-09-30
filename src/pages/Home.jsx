@@ -277,18 +277,22 @@ export default function Home() {
   }, []);
 
   // Handle destination selection (via Search, Plan Route Modal, or Peak Marker)
-  const handleSelectDestination = (dest) => {
+  const handleSelectDestination = (dest, customStart = null) => {
+    if (customStart && Array.isArray(customStart)) {
+      setPosition(customStart);
+    }
     setDestination(dest);
     setShowHikeInfo(true);
     setSearchQuery('');
     setSearchResults([]);
     setShowPlanRouteModal(false);
 
-    if (position && dest.lat && dest.lng) {
-      const midLat = (position[0] + dest.lat) / 2;
-      const midLng = (position[1] + dest.lng) / 2;
+    const origin = customStart || position;
+    if (origin && dest.lat && dest.lng) {
+      const midLat = (origin[0] + dest.lat) / 2;
+      const midLng = (origin[1] + dest.lng) / 2;
       setMapCenter([midLat, midLng]);
-      const dist = haversine(position, [dest.lat, dest.lng]);
+      const dist = haversine(origin, [dest.lat, dest.lng]);
       setMapZoom(dist > 50 ? 9 : dist > 20 ? 11 : dist > 8 ? 12 : 14);
     } else if (dest.lat && dest.lng) {
       setMapCenter([dest.lat, dest.lng]);
@@ -427,15 +431,25 @@ export default function Home() {
 
           {/* CONNECTING ROUTE LINE (Between Current Location and Destination) */}
           {destination && position && (
-            <Polyline
-              positions={[position, [destination.lat, destination.lng]]}
-              pathOptions={{
-                color: mapStyle === 'satellite' ? '#38bdf8' : '#0284c7',
-                weight: 4,
-                dashArray: '8, 8',
-                opacity: 0.95,
-              }}
-            />
+            <>
+              <Polyline
+                positions={[position, [destination.lat, destination.lng]]}
+                pathOptions={{
+                  color: mapStyle === 'satellite' ? '#0284c7' : '#047857',
+                  weight: 9,
+                  opacity: 0.45,
+                }}
+              />
+              <Polyline
+                positions={[position, [destination.lat, destination.lng]]}
+                pathOptions={{
+                  color: mapStyle === 'satellite' ? '#38bdf8' : '#10b981',
+                  weight: 5,
+                  dashArray: '8, 8',
+                  opacity: 0.98,
+                }}
+              />
+            </>
           )}
 
           {/* Active Hike Walked Track (Breadcrumb Path) */}
