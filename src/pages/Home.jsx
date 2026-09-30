@@ -108,6 +108,9 @@ export default function Home() {
   // Destination & Planned Route
   const [destination, setDestination] = useState(null);
   const [showHikeInfo, setShowHikeInfo] = useState(false);
+  // customRouteStart: the user's chosen starting point from PlanRouteModal
+  // NEVER overwritten by GPS watchPosition
+  const [customRouteStart, setCustomRouteStart] = useState(null);
 
   // Active Hike GPS Tracking
   const [isTrackingHike, setIsTrackingHike] = useState(false);
@@ -188,14 +191,14 @@ export default function Home() {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const newCoords = [pos.coords.latitude, pos.coords.longitude];
-        const hasCustom = localStorage.getItem('trekquest_custom_location');
-        if (!hasCustom) {
-          setPosition(newCoords);
-          localStorage.setItem('trekquest_current_coords', JSON.stringify(newCoords));
-        }
+        // Always update the GPS position (used for the user's avatar marker)
+        setPosition(newCoords);
+        localStorage.setItem('trekquest_current_coords', JSON.stringify(newCoords));
         if (isTrackingHike) {
           setHikeTrack((prev) => [...prev, newCoords]);
         }
+        // CRITICAL: Do NOT update mapCenter here — this would snap the map
+        // view back to the user's physical location every 3s, breaking route planning.
       },
       (err) => console.log('GPS tracking status:', err.message),
       { enableHighAccuracy: true, maximumAge: 3000 }
@@ -277,9 +280,11 @@ export default function Home() {
   }, []);
 
   // Handle destination selection (via Search, Plan Route Modal, or Peak Marker)
-  const handleSelectDestination = (dest, customStart = null) => {
-    if (customStart && Array.isArray(customStart)) {
-      setPosition(customStart);
+  // customStart is the user-chosen starting point from PlanRouteModal — NEVER GPS!
+  const handleSelectDestination = (dest, chosenStart = null) => {
+    if (chosenStart && Array.isArray(chosenStart)) {
+      // Store the user's chosen route start separately — do NOT overwrite GPS position
+      setCustomRouteStart(chosenStart);
     }
     setDestination(dest);
     setShowHikeInfo(true);
@@ -287,8 +292,9 @@ export default function Home() {
     setSearchResults([]);
     setShowPlanRouteModal(false);
 
-    const origin = customStart || position;
+    const origin = chosenStart || customRouteStart || position;
     if (origin && dest.lat && dest.lng) {
+      // Fit map view to the full route (start → destination), not just user's GPS
       const midLat = (origin[0] + dest.lat) / 2;
       const midLng = (origin[1] + dest.lng) / 2;
       setMapCenter([midLat, midLng]);
@@ -429,28 +435,31 @@ export default function Home() {
             </Marker>
           )}
 
-          {/* CONNECTING ROUTE LINE (Between Current Location and Destination) */}
-          {destination && position && (
-            <>
-              <Polyline
-                positions={[position, [destination.lat, destination.lng]]}
-                pathOptions={{
-                  color: mapStyle === 'satellite' ? '#0284c7' : '#047857',
-                  weight: 9,
-                  opacity: 0.45,
-                }}
-              />
-              <Polyline
-                positions={[position, [destination.lat, destination.lng]]}
-                pathOptions={{
-                  color: mapStyle === 'satellite' ? '#38bdf8' : '#10b981',
-                  weight: 5,
-                  dashArray: '8, 8',
-                  opacity: 0.98,
-                }}
-              />
-            </>
-          )}
+          {/* CONNECTING ROUTE LINE (Between Chosen Start and Destination) */}
+          {destination && (customRouteStart || position) && (() => {
+            const routeStart = customRouteStart || position;
+            return (
+              <>
+                <Polyline
+                  positions={[routeStart, [destination.lat, destination.lng]]}
+                  pathOptions={{
+                    color: mapStyle === 'satellite' ? '#0284c7' : '#047857',
+                    weight: 9,
+                    opacity: 0.45,
+                  }}
+                />
+                <Polyline
+                  positions={[routeStart, [destination.lat, destination.lng]]}
+                  pathOptions={{
+                    color: mapStyle === 'satellite' ? '#38bdf8' : '#10b981',
+                    weight: 5,
+                    dashArray: '8, 8',
+                    opacity: 0.98,
+                  }}
+                />
+              </>
+            );
+          })()}
 
           {/* Active Hike Walked Track (Breadcrumb Path) */}
           {isTrackingHike && hikeTrack.length >= 2 && (
@@ -655,39 +664,43 @@ export default function Home() {
       </div>
 
       {/* ── HIKE INFORMATION & ROUTE GUIDE CARD ───────────────────────── */}
-      {showHikeInfo && destination && (
-        <HikeInformationCard
-          destination={destination}
-          currentPosition={position}
-          isTracking={isTrackingHike}
-          elapsedSeconds={hikeElapsedSeconds}
-          onStartTracking={() => {
-            setIsTrackingHike(true);
-            setHikeTrack(position ? [position] : []);
-            setLocationToast('🟢 Trail GPS tracking started — breadcrumbs recording');
-            setTimeout(() => setLocationToast(''), 3000);
-          }}
-          onStopTracking={() => {
-            setIsTrackingHike(false);
-            setLocationToast('⏹️ Hike tracking stopped');
-            setTimeout(() => setLocationToast(''), 3000);
-          }}
-          onRecenterRoute={() => {
-            if (position && destination) {
-              setMapCenter([(position[0] + destination.lat) / 2, (position[1] + destination.lng) / 2]);
-              const dist = haversine(position, [destination.lat, destination.lng]);
-              setMapZoom(dist > 50 ? 9 : dist > 20 ? 11 : dist > 8 ? 12 : 14);
-            }
-          }}
-          onClearRoute={() => {
-            setDestination(null);
-            setShowHikeInfo(false);
-            setIsTrackingHike(false);
-            setHikeTrack([]);
-          }}
-          onClose={() => setShowHikeInfo(false)}
-        />
-      )}
+      {showHikeInfo && destination && (() => {
+        const routeStart = customRouteStart || position;
+        return (
+          <HikeInformationCard
+            destination={destination}
+            currentPosition={routeStart}
+            isTracking={isTrackingHike}
+            elapsedSeconds={hikeElapsedSeconds}
+            onStartTracking={() => {
+              setIsTrackingHike(true);
+              setHikeTrack(routeStart ? [routeStart] : []);
+              setLocationToast('🟢 Trail GPS tracking started — breadcrumbs recording');
+              setTimeout(() => setLocationToast(''), 3000);
+            }}
+            onStopTracking={() => {
+              setIsTrackingHike(false);
+              setLocationToast('⏹️ Hike tracking stopped');
+              setTimeout(() => setLocationToast(''), 3000);
+            }}
+            onRecenterRoute={() => {
+              if (routeStart && destination) {
+                setMapCenter([(routeStart[0] + destination.lat) / 2, (routeStart[1] + destination.lng) / 2]);
+                const dist = haversine(routeStart, [destination.lat, destination.lng]);
+                setMapZoom(dist > 50 ? 9 : dist > 20 ? 11 : dist > 8 ? 12 : 14);
+              }
+            }}
+            onClearRoute={() => {
+              setDestination(null);
+              setCustomRouteStart(null);
+              setShowHikeInfo(false);
+              setIsTrackingHike(false);
+              setHikeTrack([]);
+            }}
+            onClose={() => setShowHikeInfo(false)}
+          />
+        );
+      })()}
 
       {/* ── BOTTOM WEATHER & PLAN A ROUTE DRAWER ─────────────────────── */}
       {!showHikeInfo && (

@@ -96,13 +96,14 @@ function routeDistance(pts) {
   return d;
 }
 
-function RecenterMap({ position, followUser }) {
+function RecenterMap({ position, followUser, startMode, hasActiveRoute }) {
   const map = useMap();
   useEffect(() => {
-    if (position && followUser) {
+    // CRITICAL: NEVER pan map to GPS coordinates if user planned a custom route or custom start!
+    if (position && followUser && startMode !== 'custom' && !hasActiveRoute) {
       map.panTo(position, { animate: true, duration: 0.5 });
     }
-  }, [position, followUser, map]);
+  }, [position, followUser, startMode, hasActiveRoute, map]);
   return null;
 }
 
@@ -153,7 +154,7 @@ function FitRouteBounds({ destination, startPoint }) {
         map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
       } catch {}
     }
-  }, [destination?.lat, destination?.lng, map]);
+  }, [destination?.lat, destination?.lng, startPoint, map]);
   return null;
 }
 
@@ -185,8 +186,21 @@ export default function MapPage() {
   const [mapStyle, setMapStyle] = useState('satellite'); // 'satellite', 'topo', 'streets'
 
   // Route points: Start + Waypoints + Destination
-  const [customStart, setCustomStart] = useState(null);
-  const [startMode, setStartMode] = useState('gps'); // 'gps' or 'custom'
+  const [customStart, setCustomStart] = useState(() => {
+    try {
+      const saved = localStorage.getItem('trekquest_custom_start');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [startMode, setStartMode] = useState(() => {
+    try {
+      return localStorage.getItem('trekquest_start_mode') || 'gps';
+    } catch {
+      return 'gps';
+    }
+  });
   const [waypoints, setWaypoints] = useState([]); // [{ id, name, lat, lng, isDest }]
   const [editingWaypoint, setEditingWaypoint] = useState(null);
 
@@ -473,14 +487,19 @@ export default function MapPage() {
 
   // Destination selection (via Search, Plan Route Modal, or Peak Marker)
   // Accepts destination AND optional user-chosen starting point!
-  const handleSelectDestination = (dest, customStart = null) => {
-    if (customStart && Array.isArray(customStart)) {
-      setCustomStart(customStart);
+  const handleSelectDestination = (dest, chosenStart = null) => {
+    const activeStart = (chosenStart && Array.isArray(chosenStart)) ? chosenStart : customStart;
+    if (chosenStart && Array.isArray(chosenStart)) {
+      setCustomStart(chosenStart);
       setStartMode('custom');
-      setPosition(customStart);
+      setFollowUser(false); // CRITICAL: Stop following user phone GPS so the view stays on the planned route
+      try {
+        localStorage.setItem('trekquest_custom_start', JSON.stringify(chosenStart));
+        localStorage.setItem('trekquest_start_mode', 'custom');
+      } catch {}
     }
 
-    const origin = customStart || (startMode === 'custom' && customStart ? customStart : position);
+    const origin = activeStart || (startMode === 'custom' && customStart ? customStart : position);
     const distKm = origin
       ? haversine(origin, [dest.lat, dest.lng])
       : parseFloat(dest.distanceKm || 5);
@@ -503,8 +522,16 @@ export default function MapPage() {
     setShowPlanRouteModal(false);
     setShowHikeInfo(false);
     setShowHikePreStart(true); // Show the cinematic info screen FIRST
-    setLocationToast(customStart ? `📍 Route planned: Custom Start → ${dest.name}` : `📍 Destination set: ${dest.name}`);
+    setLocationToast(activeStart ? `📍 Route planned: Custom Start → ${dest.name}` : `📍 Destination set: ${dest.name}`);
     setTimeout(() => setLocationToast(''), 3500);
+
+    // Immediately fit map view to the planned route
+    if (mapInstanceRef.current && origin) {
+      try {
+        const bounds = L.latLngBounds([origin, [dest.lat, dest.lng]]);
+        mapInstanceRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+      } catch {}
+    }
   };
 
   // Called from HikePreStartModal START button — launches the ActiveHikeHUD
@@ -512,7 +539,8 @@ export default function MapPage() {
     setShowHikePreStart(false);
     setActiveHikeDestination(dest);
     setTracking(true);
-    setTrackPath(position ? [position] : []);
+    const origin = (startMode === 'custom' && customStart) ? customStart : position;
+    setTrackPath(origin ? [origin] : []);
     setShowHikeInfo(false);
     setLocationToast('🚶 Live Hike Started! Follow the blue dashed line.');
     setTimeout(() => setLocationToast(''), 4000);
@@ -525,12 +553,16 @@ export default function MapPage() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const newCoords = [pos.coords.latitude, pos.coords.longitude];
+        // ALWAYS update the live GPS avatar position so the user's marker stays accurate
         setPosition(newCoords);
         localStorage.setItem('trekquest_current_coords', JSON.stringify(newCoords));
 
+        // Only append breadcrumbs to trackPath when actively hiking
         if (tracking) {
           setTrackPath((prev) => [...prev, newCoords]);
         }
+        // NOTE: We do NOT call setFollowUser or pan the map here.
+        // RecenterMap handles panning ONLY when followUser=true AND no custom route is active.
       },
       (err) => console.warn('GPS watch error:', err),
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
@@ -630,15 +662,16 @@ export default function MapPage() {
     setWaypoints((prev) => [...prev, newWp]);
   };
 
-  const startPoint = startMode === 'custom' && customStart ? customStart : position;
+  const startPoint = (startMode === 'custom' && customStart) ? customStart : position;
   const activeDest = activeHikeDestination || selectedDestination || waypoints.find((w) => w.isDest);
 
-  // Live real-time distance and compass bearing from hiker's live position to destination
-  const distToDest = (position && activeDest)
-    ? haversine(position, [activeDest.lat, activeDest.lng])
+  // Live real-time distance and compass bearing from route starting point to destination
+  const routeOrigin = (startMode === 'custom' && customStart) ? customStart : (tracking ? position : (startPoint || position));
+  const distToDest = (routeOrigin && activeDest)
+    ? haversine(routeOrigin, [activeDest.lat, activeDest.lng])
     : 0;
-  const bearingToDest = (position && activeDest)
-    ? calculateBearing(position, [activeDest.lat, activeDest.lng])
+  const bearingToDest = (routeOrigin && activeDest)
+    ? calculateBearing(routeOrigin, [activeDest.lat, activeDest.lng])
     : 0;
   const cardinalDirection = getCompassDirection(bearingToDest);
 
@@ -815,7 +848,14 @@ export default function MapPage() {
             onBoundsChange={setCurrentMapBounds}
             onDragStart={() => setFollowUser(false)}
           />
-          {position && <RecenterMap position={position} followUser={followUser} />}
+          {position && (
+            <RecenterMap
+              position={position}
+              followUser={followUser}
+              startMode={startMode}
+              hasActiveRoute={Boolean(activeDest || selectedDestination)}
+            />
+          )}
           <FitRouteBounds destination={selectedDestination} startPoint={startPoint} />
 
           {/* User Live GPS Marker (Avatar with Orientation Compass Cone) */}
@@ -1234,6 +1274,11 @@ export default function MapPage() {
               onClick={() => {
                 setStartMode('gps');
                 setCustomStart(null);
+                setFollowUser(true);
+                try {
+                  localStorage.removeItem('trekquest_custom_start');
+                  localStorage.setItem('trekquest_start_mode', 'gps');
+                } catch {}
               }}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
                 startMode === 'gps' ? 'bg-emerald-600 text-white' : 'bg-white/10 text-slate-300'
