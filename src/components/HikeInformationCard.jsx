@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Navigation, X, Compass, Mountain, Clock, Route,
-  Play, Square, ChevronUp, ChevronDown, Backpack, Check,
-  AlertTriangle, CloudSun
+  Navigation, X, Route,
+  Play, Square, ChevronUp, ChevronDown, Backpack
 } from 'lucide-react';
 import { haversine, calculateBearing, getCompassDirection } from '@/lib/philippinePlaces';
 

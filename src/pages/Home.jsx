@@ -9,14 +9,13 @@ import MusicMode from '@/pages/Music';
 import {
   Menu, Search, Music, Compass as CompassIcon, Scan,
   X, ChevronRight, Backpack, Navigation, HeartPulse, BookOpen, UserRound,
-  Mountain, AlertCircle, LogOut, LocateFixed, RefreshCw, Route, Layers
+  Mountain, AlertCircle, LogOut, LocateFixed, RefreshCw
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
 import PlanRouteModal from '@/components/PlanRouteModal';
 import HikeInformationCard from '@/components/HikeInformationCard';
 import {
-  philippinePlaces,
   searchBroadPlaces,
   haversine
 } from '@/lib/philippinePlaces';

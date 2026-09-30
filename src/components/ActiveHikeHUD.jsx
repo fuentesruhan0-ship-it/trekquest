@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Square, CheckCircle2, Award, Clock, Footprints, Flame,
-  Droplets, Coffee, AlertCircle, Compass as CompassIcon, Music,
-  Scan, HeartPulse, X, Navigation, Share2, Mountain
+  Droplets, Coffee, Compass as CompassIcon, Music,
+  Scan, HeartPulse, Navigation
 } from 'lucide-react';
 import { haversine } from '@/lib/philippinePlaces';
 import { useAuth } from '@/lib/AuthContext';

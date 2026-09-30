@@ -4,9 +4,9 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  Map as MapIcon, Play, Square, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
+  Map as MapIcon, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
   X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
-  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Camera, Users, Search
+  UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Users, Search
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';

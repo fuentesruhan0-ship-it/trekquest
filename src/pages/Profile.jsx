@@ -4,7 +4,8 @@ import { useAuth } from '@/lib/AuthContext';
 import {
   UserRound, Map, BookOpen, Mountain, HeartPulse, Leaf, Backpack,
   CloudSun, Compass, Droplets, Flame, Music, Armchair, Clock, LogOut,
-  ChevronRight, Camera, Edit3, X, Check, Sparkles, Navigation
+  ChevronRight, Camera, Edit3, X, Check, Sparkles, Navigation,
+  Smartphone, Download
 } from 'lucide-react';
 
 const avatarPresets = [
@@ -145,6 +146,29 @@ export default function Profile() {
           <div className="flex items-center gap-1 text-white font-bold text-xs bg-white/20 px-2.5 py-1 rounded-xl shrink-0">
             <span>Explore</span>
             <ChevronRight size={14} />
+          </div>
+        </button>
+
+        {/* Install App on Phone Card */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-install-pwa-modal'))}
+          className="w-full flex items-center gap-3.5 bg-gradient-to-r from-emerald-950 via-teal-950 to-slate-900 border-2 border-emerald-500/50 hover:border-emerald-400 text-white rounded-2xl p-3.5 shadow-md active:scale-[0.98] transition cursor-pointer group text-left relative overflow-hidden"
+        >
+          <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 transition">
+            <Smartphone size={22} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-bold text-sm text-white">Install App on Phone</p>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950">
+                PWA
+              </span>
+            </div>
+            <p className="text-xs text-emerald-200/70 truncate mt-0.5">Standalone icon • Fullscreen • Offline maps</p>
+          </div>
+          <div className="flex items-center gap-1.5 text-emerald-300 font-bold text-xs bg-emerald-500/20 border border-emerald-400/30 px-3 py-1.5 rounded-xl shrink-0 group-hover:bg-emerald-500 group-hover:text-slate-950 transition">
+            <Download size={13} />
+            <span>Install</span>
           </div>
         </button>
 

@@ -1,0 +1,70 @@
+{
+  "name": "TrekQuest — Philippine Trail Navigation",
+  "short_name": "TrekQuest",
+  "description": "Offline GPS navigation and hiking companion designed for Philippine trails, mountains, barangays, and outdoor adventures.",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#022c22",
+  "theme_color": "#022c22",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["navigation", "travel", "sports"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Trail Map & GPS",
+      "short_name": "Trail Map",
+      "description": "Open live offline GPS trail map",
+      "url": "/map",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Digital Compass",
+      "short_name": "Compass",
+      "description": "Magnetic azimuth and elevation compass",
+      "url": "/compass",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Emergency SOS",
+      "short_name": "Emergency",
+      "description": "Barangay and MDRRMO emergency contacts",
+      "url": "/emergency",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

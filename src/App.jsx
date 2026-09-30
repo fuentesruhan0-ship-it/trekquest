@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Layout from '@/components/Layout';
+import InstallPwaModal from '@/components/InstallPwaModal';
 import Home from '@/pages/Home';
 import MapPage from '@/pages/MapPage';
 import Weather from '@/pages/Weather';
@@ -79,6 +80,7 @@ function App() {
           <AuthenticatedApp />
         </Router>
         <Toaster />
+        <InstallPwaModal />
       </QueryClientProvider>
     </AuthProvider>
   );
