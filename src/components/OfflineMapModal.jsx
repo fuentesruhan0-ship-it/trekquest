@@ -26,7 +26,7 @@ export default function OfflineMapModal({
 }) {
   const [activeTab, setActiveTab] = useState('download'); // 'download', 'presets', 'saved'
   const [downloadTarget, setDownloadTarget] = useState('current'); // 'current', 'route'
-  const [selectedLayers, setSelectedLayers] = useState(['satellite', 'topo']);
+  const [selectedLayers, setSelectedLayers] = useState(['satellite', 'topo', 'streets']);
   const [zoomDetail, setZoomDetail] = useState('standard'); // 'standard' (13-15), 'deep' (13-16)
   
   // Download progress state
@@ -148,7 +148,7 @@ export default function OfflineMapModal({
   const handleDownloadPreset = async (preset) => {
     if (isDownloading) return;
     setPresetStatus((prev) => ({ ...prev, [preset.id]: 'downloading' }));
-    const urls = generateTileUrls(preset.bounds, 13, 16, ['satellite', 'topo']);
+    const urls = generateTileUrls(preset.bounds, 13, 16, ['satellite', 'topo', 'streets']);
 
     abortControllerRef.current = new AbortController();
     try {
@@ -167,7 +167,7 @@ export default function OfflineMapModal({
         estimatedMb: parseFloat(((result.completed * 22) / 1024).toFixed(1)),
         bounds: preset.bounds,
         zoomLevels: '13-16',
-        layers: ['satellite', 'topo'],
+        layers: ['satellite', 'topo', 'streets'],
       });
 
       setPresetStatus((prev) => ({ ...prev, [preset.id]: 'cached' }));
@@ -351,22 +351,11 @@ export default function OfflineMapModal({
               {/* Layers to Include */}
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Map Layers to Pre-cache
+                  Map Layers to Pre-cache (Satellite, Topo &amp; Outdoor)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
-                    onClick={() => toggleLayer('satellite')}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
-                      selectedLayers.includes('satellite')
-                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
-                        : 'border-white/10 bg-slate-900 text-slate-500'
-                    }`}
-                  >
-                    <span>🛰️ Satellite View (Esri)</span>
-                    {selectedLayers.includes('satellite') && <CheckCircle2 size={14} className="text-emerald-400" />}
-                  </button>
-
-                  <button
+                    type="button"
                     onClick={() => toggleLayer('topo')}
                     className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
                       selectedLayers.includes('topo')
@@ -374,8 +363,34 @@ export default function OfflineMapModal({
                         : 'border-white/10 bg-slate-900 text-slate-500'
                     }`}
                   >
-                    <span>⛰️ Topographic (Contours)</span>
-                    {selectedLayers.includes('topo') && <CheckCircle2 size={14} className="text-emerald-400" />}
+                    <span>⛰️ Topo (Contours)</span>
+                    {selectedLayers.includes('topo') && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleLayer('satellite')}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
+                      selectedLayers.includes('satellite')
+                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/10 bg-slate-900 text-slate-500'
+                    }`}
+                  >
+                    <span>🛰️ Satellite (Esri)</span>
+                    {selectedLayers.includes('satellite') && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleLayer('streets')}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
+                      selectedLayers.includes('streets')
+                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/10 bg-slate-900 text-slate-500'
+                    }`}
+                  >
+                    <span>🌲 Outdoor (Trails)</span>
+                    {selectedLayers.includes('streets') && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
                   </button>
                 </div>
               </div>

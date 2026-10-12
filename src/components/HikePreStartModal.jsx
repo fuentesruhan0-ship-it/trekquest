@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Mountain, Navigation, Clock, Calendar, CloudSun,
-  Footprints, AlertTriangle, Play, X, Wind, Droplets,
+  Footprints, Flame, AlertTriangle, Play, X, Wind, Droplets,
   MapPin, ChevronRight, Download
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
@@ -59,6 +59,8 @@ export default function HikePreStartModal({
     : parseFloat(destination?.distanceKm || 5);
 
   const estHours = parseFloat(destination?.estHours || Math.max(0.4, distKm / 3.5).toFixed(1));
+  const estSteps = Math.round(distKm * 1330);
+  const estCalories = Math.max(15, Math.round(estSteps * 0.045 + (estHours * 60) * 4.2));
 
   const returnTime = new Date(now.getTime() + estHours * 60 * 60 * 1000);
   const returnStr = returnTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
@@ -163,20 +165,36 @@ export default function HikePreStartModal({
               </div>
             </div>
 
-            {/* Distance */}
-            <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-center">
-              <Navigation size={20} className="text-emerald-400 mx-auto mb-1" />
+            {/* 1. Distance */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Navigation size={18} className="text-emerald-400 mx-auto mb-1" />
               <p className="text-[10px] text-slate-400 font-bold uppercase">Distance</p>
-              <p className="text-xl font-black text-emerald-400 font-mono">{distKm.toFixed(1)}</p>
+              <p className="text-lg font-black text-emerald-400 font-mono">{distKm.toFixed(1)}</p>
               <p className="text-[10px] text-slate-400">km</p>
             </div>
 
-            {/* Est. Duration */}
-            <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-center">
-              <Clock size={20} className="text-amber-400 mx-auto mb-1" />
+            {/* 2. Est. Duration */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Clock size={18} className="text-amber-400 mx-auto mb-1" />
               <p className="text-[10px] text-slate-400 font-bold uppercase">Est. Duration</p>
-              <p className="text-xl font-black text-amber-400 font-mono">~{estHours}</p>
+              <p className="text-lg font-black text-amber-400 font-mono">~{estHours}</p>
               <p className="text-[10px] text-slate-400">hours</p>
+            </div>
+
+            {/* 3. Steps Counter */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Footprints size={18} className="text-sky-400 mx-auto mb-1" />
+              <p className="text-[10px] text-slate-400 font-bold uppercase">Steps Counter</p>
+              <p className="text-lg font-black text-sky-400 font-mono">{estSteps.toLocaleString()}</p>
+              <p className="text-[10px] text-slate-400">steps</p>
+            </div>
+
+            {/* 4. Burned Calories */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Flame size={18} className="text-rose-400 mx-auto mb-1" />
+              <p className="text-[10px] text-slate-400 font-bold uppercase">Burned Calories</p>
+              <p className="text-lg font-black text-rose-400 font-mono">{estCalories}</p>
+              <p className="text-[10px] text-slate-400">kcal</p>
             </div>
 
             {/* Estimated Return */}

@@ -767,6 +767,8 @@ function analyzeUserScan(canvas, ctx) {
     let redCount = 0;
     let greenCount = 0;
     let yellowCount = 0;
+    let blueCount = 0;
+    let skinCount = 0;
     let darkCount = 0;
     let paleCount = 0;
     let edgeEnergy = 0;
@@ -785,13 +787,20 @@ function analyzeUserScan(canvas, ctx) {
         yellowCount++;
       } else if (g > r * 1.15 && g > b * 1.15) {
         greenCount++;
+      } else if (b > 125 && b > r * 1.25 && b > g * 1.15) {
+        blueCount++;
       } else if (lum < 55) {
         darkCount++;
       } else if (lum > 190) {
         paleCount++;
       }
 
-      // Simple edge detection: gradient against previous pixel
+      // Detect human skin tones (non-botanical)
+      if (r > 95 && g > 40 && b > 20 && r > g && g > b && (r - g) > 15 && (r - g) < 95 && (g - b) > 10 && (g - b) < 65) {
+        skinCount++;
+      }
+
+      // Edge detection: gradient against previous pixel
       if (i > 4) {
         const prevLum = (data[i - 4] + data[i - 3] + data[i - 2]) / 3;
         edgeEnergy += Math.abs(lum - prevLum);
@@ -801,9 +810,51 @@ function analyzeUserScan(canvas, ctx) {
     const redRatio = redCount / totalPixels;
     const yellowRatio = yellowCount / totalPixels;
     const greenRatio = greenCount / totalPixels;
+    const blueRatio = blueCount / totalPixels;
+    const skinRatio = skinCount / totalPixels;
     const darkRatio = darkCount / totalPixels;
     const paleRatio = paleCount / totalPixels;
     const avgEdge = edgeEnergy / totalPixels;
+
+    // BOTANICAL FEATURE VALIDATION:
+    // Determine whether the image actually depicts a plant or non-botanical matter
+    const hasBotanicalPigments =
+      greenRatio >= 0.05 ||
+      (greenRatio >= 0.025 && (yellowRatio >= 0.03 || redRatio >= 0.03)) ||
+      (yellowRatio >= 0.10 && greenRatio >= 0.015) ||
+      (redRatio >= 0.10 && greenRatio >= 0.015);
+
+    const hasOrganicTexture = avgEdge >= 3.0;
+    const isBlueDominant = blueRatio > 0.25 && greenRatio < 0.04;
+    const isBlankOrExtreme = (paleRatio > 0.82 || darkRatio > 0.85) && avgEdge < 5.0;
+    const isHumanSkin = skinRatio > 0.35 && greenRatio < 0.035;
+
+    const isPlant = hasBotanicalPigments && hasOrganicTexture && !isBlueDominant && !isBlankOrExtreme && !isHumanSkin;
+
+    if (!isPlant) {
+      return {
+        isPlant: false,
+        top: null,
+        confidence: 0,
+        alternatives: [],
+        reason: !hasBotanicalPigments
+          ? 'No botanical chlorophyll, floral pigmentation, or leaf structures detected.'
+          : isBlankOrExtreme
+          ? 'Scanned frame is too uniform, overexposed, or unlit.'
+          : isBlueDominant
+          ? 'Synthetic or non-botanical color distribution detected.'
+          : isHumanSkin
+          ? 'Subject appears to be human skin or a non-plant subject.'
+          : 'No organic leaf textures or foliage patterns found.',
+        metrics: {
+          redRatio: (redRatio * 100).toFixed(0),
+          greenRatio: (greenRatio * 100).toFixed(0),
+          yellowRatio: (yellowRatio * 100).toFixed(0),
+          blueRatio: (blueRatio * 100).toFixed(0),
+          avgEdge: avgEdge.toFixed(1),
+        },
+      };
+    }
 
     // Score every species against scan signals
     const scored = plantDictionary.map((plant) => {
@@ -824,10 +875,10 @@ function analyzeUserScan(canvas, ctx) {
         score += darkRatio * 90 + greenRatio * 50;
       } else if (plant.color_category === 'feathery_green') {
         score += greenRatio * 80;
-        if (avgEdge > 20) score += 30; // fine feathery textures have high edge energy
+        if (avgEdge > 20) score += 30;
       } else if (plant.color_category === 'broad_green') {
         score += greenRatio * 75;
-        if (avgEdge <= 20) score += 25; // broad leaves have smoother texture
+        if (avgEdge <= 20) score += 25;
       } else if (plant.color_category === 'white_flower') {
         score += paleRatio * 140;
       } else {
@@ -842,13 +893,14 @@ function analyzeUserScan(canvas, ctx) {
       return {
         plant,
         score,
-        confidence: Math.min(99.4, Math.max(89.5, Number((88 + (score % 11.5)).toFixed(1)))),
+        confidence: Math.min(99.4, Math.max(55.0, Number((55 + (score % 44.5)).toFixed(1)))),
       };
     });
 
     scored.sort((a, b) => b.score - a.score);
 
     return {
+      isPlant: true,
       top: scored[0].plant,
       confidence: scored[0].confidence,
       alternatives: scored.slice(1, 3).map((s) => ({
@@ -859,21 +911,18 @@ function analyzeUserScan(canvas, ctx) {
         redRatio: (redRatio * 100).toFixed(0),
         greenRatio: (greenRatio * 100).toFixed(0),
         yellowRatio: (yellowRatio * 100).toFixed(0),
+        blueRatio: (blueRatio * 100).toFixed(0),
         avgEdge: avgEdge.toFixed(1),
       },
     };
   } catch {
-    const randomIdx = Math.floor(Math.random() * plantDictionary.length);
-    const altIdx1 = (randomIdx + 1) % plantDictionary.length;
-    const altIdx2 = (randomIdx + 2) % plantDictionary.length;
     return {
-      top: plantDictionary[randomIdx],
-      confidence: 96.4,
-      alternatives: [
-        { plant: plantDictionary[altIdx1], confidence: 92.1 },
-        { plant: plantDictionary[altIdx2], confidence: 89.3 },
-      ],
-      metrics: { redRatio: 12, greenRatio: 58, yellowRatio: 8, avgEdge: 18.5 },
+      isPlant: false,
+      top: null,
+      confidence: 0,
+      alternatives: [],
+      reason: 'Unable to analyze image data for botanical features.',
+      metrics: { redRatio: 0, greenRatio: 0, yellowRatio: 0, blueRatio: 0, avgEdge: 0 },
     };
   }
 }
@@ -897,6 +946,12 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
   });
   const [searchDict, setSearchDict] = useState('');
   const [facingMode, setFacingMode] = useState('environment'); // 'environment' or 'user'
+
+  // Offline AI Plant Assistant state
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiThinking, setAiThinking] = useState(false);
+  const aiChatEndRef = useRef(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -1018,7 +1073,6 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
 
     setTimeout(() => {
       const analysis = analyzeUserScan(canvas, ctx);
-      const match = analysis.top;
 
       let gpsCoords = 'High Mountain Trail';
       try {
@@ -1029,8 +1083,28 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
         }
       } catch {}
 
+      if (!analysis.isPlant || !analysis.top) {
+        const scanRecord = {
+          id: `scan_${Date.now()}`,
+          isPlant: false,
+          plant_name: 'Unrecognized Subject',
+          local_name: 'Not a Plant',
+          photo_url: photoDataUrl,
+          scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          confidence: 0,
+          reason: analysis.reason,
+          metrics: analysis.metrics,
+          gps: gpsCoords,
+        };
+        setScannedResult(scanRecord);
+        setIsScanning(false);
+        return;
+      }
+
+      const match = analysis.top;
       const scanRecord = {
         id: `scan_${Date.now()}`,
+        isPlant: true,
         plant_id: match.id,
         plant_name: match.plant_name,
         local_name: match.local_name,
@@ -1095,7 +1169,6 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
 
         setTimeout(() => {
           const analysis = analyzeUserScan(canvas, ctx);
-          const match = analysis.top;
 
           let gpsCoords = 'High Mountain Trail';
           try {
@@ -1106,8 +1179,28 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
             }
           } catch {}
 
+          if (!analysis.isPlant || !analysis.top) {
+            const scanRecord = {
+              id: `scan_${Date.now()}`,
+              isPlant: false,
+              plant_name: 'Unrecognized Subject',
+              local_name: 'Not a Plant',
+              photo_url: dataUrl,
+              scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              confidence: 0,
+              reason: analysis.reason,
+              metrics: analysis.metrics,
+              gps: gpsCoords,
+            };
+            setScannedResult(scanRecord);
+            setIsScanning(false);
+            return;
+          }
+
+          const match = analysis.top;
           const scanRecord = {
             id: `scan_${Date.now()}`,
+            isPlant: true,
             plant_id: match.id,
             plant_name: match.plant_name,
             local_name: match.local_name,
@@ -1175,6 +1268,17 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
       return;
     }
 
+    if (scannedResult.isPlant === false) {
+      const text = "No plant recognized in this scan. Please point your camera at wild trail leaves or flora.";
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      setIsSpeaking(true);
+      window.speechSynthesis.speak(utterance);
+      return;
+    }
+
     const text = `${scannedResult.plant_name}. Local name: ${scannedResult.local_name}. Scientific name: ${scannedResult.scientific_name}. Status: ${scannedResult.danger_level}. Trail note: ${scannedResult.care_note}.`;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
@@ -1189,8 +1293,143 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
     setScannedResult(null);
     setCapturedPhotoUrl(null);
     setActiveTab('camera');
+    setAiMessages([]);
+    setAiInput('');
     startCamera();
   };
+
+  // ── OFFLINE AI PLANT ASSISTANT ─────────────────────────────────────────
+  const generateOfflineAIAnswer = (question, plant) => {
+    if (!plant || plant.isPlant === false) {
+      return `❌ **No plant detected.** I can only answer questions when a valid trail plant is scanned. Please point your camera at a wild leaf, flower, or plant to begin.`;
+    }
+
+    const q = question.toLowerCase().trim();
+
+    // Check if query is unrelated to plants or botany
+    const isUnrelatedTopic =
+      q.match(/\b(javascript|python|coding|code|programming|html|css|react|sql|database|api|software|bug)\b/) ||
+      q.match(/\b(president|politics|government|election|senator|congress|law|war|military)\b/) ||
+      q.match(/\b(crypto|bitcoin|stock|finance|money|dollar|peso|bank|currency|investment)\b/) ||
+      q.match(/\b(game|gaming|playstation|xbox|nintendo|steam|minecraft|roblox|fortnite)\b/) ||
+      q.match(/\b(movie|film|actor|hollywood|music album|song lyrics|celebrity|singer)\b/) ||
+      q.match(/\b(car|motorcycle|vehicle|engine|toyota|honda|tesla|airplane)\b/) ||
+      q.match(/\b(calculate|math|solve|equation|\d+\s*[\+\-\*\/]\s*\d+)\b/) ||
+      q.match(/\b(joke|riddle|story|poem|write an essay|weather tomorrow)\b/);
+
+    const plantKeywords = [
+      plant.plant_name?.toLowerCase(),
+      plant.local_name?.toLowerCase(),
+      plant.scientific_name?.toLowerCase(),
+      plant.family?.toLowerCase(),
+      'plant', 'leaf', 'leaves', 'flower', 'berry', 'berries', 'tree', 'herb', 'fern',
+      'stem', 'root', 'bark', 'bush', 'shrub', 'vine', 'sprout', 'seed', 'fruit', 'botany', 'flora',
+      'eat', 'edible', 'food', 'consume', 'digest', 'cook', 'boil', 'taste', 'poison', 'toxic',
+      'touch', 'skin', 'rash', 'sting', 'itch', 'harm', 'danger', 'safe', 'hazard', 'allergic',
+      'first aid', 'emergency', 'swallow', 'antidote', 'medic', 'cure', 'heal', 'remedy',
+      'where', 'habitat', 'grow', 'elevation', 'mountain', 'altitude', 'trail', 'philippines',
+      'water', 'drink', 'survival', 'thirst', 'fire', 'tinder', 'species', 'identify', 'what is'
+    ].filter(Boolean);
+
+    const hasBotanicalRelevance = plantKeywords.some((kw) => q.includes(kw));
+
+    if (isUnrelatedTopic || (!hasBotanicalRelevance && q.length > 3 && !q.match(/^(hi|hello|hey|help|who are you|what can you do)/))) {
+      return `🌿 I am the offline trail guide for **${plant.plant_name}** (${plant.local_name}). I only answer questions related to this plant and mountain botany.\n\nAsk me:\n• **Edibility:** "Is it edible?" or "Can I cook it?"\n• **Safety:** "Is it safe to touch?" or "Is it poisonous?"\n• **First Aid:** "What to do if exposed?"\n• **Habitat:** "Where does it grow?"\n• **Survival Use:** "Does it provide water or tinder?"`;
+    }
+
+    // Greeting
+    if (q.match(/^(hi|hello|hey|help|who are you|what can you do)/)) {
+      return `👋 Hello! I am your offline botanical assistant for **${plant.plant_name}** (${plant.local_name}, *${plant.scientific_name}*).\n\nAsk me anything about this plant's edibility, toxicity, handling safety, first aid, or survival uses!`;
+    }
+
+    // Edibility
+    if (q.match(/eat|edible|food|safe to eat|consume|digest|cook|boil|taste|recipe|feed|hungry|forag/)) {
+      if (plant.safety === 'edible') {
+        return `✅ **${plant.plant_name} is EDIBLE.**\n\n${plant.edibility_details || `The ${plant.local_name} is safe for trail foraging.`}\n\n💡 **Survival Tip:** ${plant.care_note}`;
+      } else if (plant.safety === 'poisonous') {
+        return `⛔ **DO NOT EAT — HIGH TOXICITY WARNING!**\n\n**${plant.plant_name}** (${plant.local_name}) is **toxic to humans**.\n\n${plant.edibility_details || 'Ingesting any part of this plant causes severe gastrointestinal poisoning, cramps, or toxic organ stress.'}\n\n🩹 **First Aid:** ${plant.first_aid || 'Seek emergency evacuation immediately. Keep patient hydrated.'}`;
+      } else if (plant.safety === 'medicinal') {
+        return `⚠️ **NOT RECOMMENDED AS FOOD.**\n\n**${plant.plant_name}** (${plant.local_name}) contains active medicinal alkaloids. While used in traditional folk remedies, it should **NOT be eaten raw as trail food**.\n\n${plant.edibility_details || plant.care_note}`;
+      }
+      return `ℹ️ **${plant.plant_name}** — Edibility status: **${plant.safety.toUpperCase()}**.\n\n${plant.edibility_details || plant.care_note}`;
+    }
+
+    // Touching / skin contact
+    if (q.match(/touch|skin|rash|sting|itch|allergic|contact|handle|bare hand|hold|prick|thorn|hair/)) {
+      if (plant.safety === 'poisonous' || (plant.first_aid && plant.first_aid.toLowerCase().includes('sting'))) {
+        return `⚠️ **AVOID SKIN CONTACT!**\n\nTouching **${plant.plant_name}** (${plant.local_name}) can cause skin irritation or stinging.\n\n🩹 **Handling & First Aid:** ${plant.first_aid || 'Wash exposed skin immediately with clean water. Do not rub eyes.'}\n\n${plant.care_note}`;
+      }
+      return `👋 **Safe to Touch:**\n\n**${plant.plant_name}** is generally safe to handle with bare hands on the trail.\n\n${plant.first_aid || 'Always wash hands before eating or rubbing eyes after handling wild plants.'}`;
+    }
+
+    // First aid / medical emergency
+    if (q.match(/first aid|emergency|doctor|hospital|antidote|swallow|poisoning|wound|treat|remedy/)) {
+      return `🩹 **First Aid Protocol for ${plant.plant_name}:**\n\n${plant.first_aid || 'If accidentally ingested or if an allergic reaction occurs, keep the victim calm, flush with clean water, avoid inducing vomiting unless directed by medical personnel, and seek trail emergency evacuation.'}\n\n💡 **Trail Note:** ${plant.care_note}`;
+    }
+
+    // Medicinal uses
+    if (q.match(/medic|heal|cure|herb|traditional|decoction|folk|poultice|health/)) {
+      if (plant.safety === 'medicinal' || (plant.care_note && plant.care_note.toLowerCase().includes('medic'))) {
+        return `🌿 **Medicinal Profile of ${plant.plant_name} (${plant.local_name}):**\n\n${plant.care_note}\n\n• **Scientific classification:** *${plant.scientific_name}* (${plant.family})\n• **Botanical background:** ${plant.description}`;
+      }
+      return `🌿 **${plant.plant_name}** is not a primary medicinal plant in this catalog. Its trail safety classification is **${plant.safety.toUpperCase()}**.\n\n${plant.care_note}`;
+    }
+
+    // Habitat / where found
+    if (q.match(/where|habitat|elevation|grow|location|zone|found|region|mountain|pulag|cordillera|apo/)) {
+      return `📍 **Habitat & Trail Range:**\n\n**${plant.plant_name}** (*${plant.scientific_name}*):\n• **Environment:** ${plant.habitat || 'High elevation Philippine mountain slopes and forest trails'}\n• **Family:** ${plant.family}\n• **Local Identification:** Known locally as *${plant.local_name}*.`;
+    }
+
+    // Identification / what is this
+    if (q.match(/what is|identify|species|scientific|family|name|classif|look like|feature|leaf|flower|pattern/)) {
+      return `🔬 **Botanical Classification:**\n\n• **Common Name:** ${plant.plant_name}\n• **Local Name:** ${plant.local_name}\n• **Scientific Name:** *${plant.scientific_name}*\n• **Family:** ${plant.family}\n• **Safety Level:** ${plant.safety.toUpperCase()}\n\n📖 **Description:** ${plant.description}`;
+    }
+
+    // Water / survival use
+    if (q.match(/water|drink|thirst|liquid|dew|bushcraft|fire|tinder|survival/)) {
+      if (plant.id === 'pitcher_plant') {
+        return `💧 **Emergency Water Source:**\n\nUnopened pitchers of *Nepenthes alata* contain sterile fluid that can be filtered and drunk in extreme survival emergencies. Never drink from old open pitchers filled with insects.`;
+      }
+      if (plant.id === 'wild_bamboo') {
+        return `💧 **Water & Tool Sourcing:**\n\nCutting young bamboo internodes can yield drinkable rainwater or dew condensation. Bamboo segments can also be used as survival cookware.`;
+      }
+      if (plant.id === 'benguet_pine') {
+        return `🔥 **Survival Fire & Sustenance:**\n\nFallen resinous pine needles and dry cones make exceptional campfire tinder even in damp Cordillera mist. Fresh green needles can be brewed into vitamin C tea.`;
+      }
+      return `💧 **${plant.plant_name} Survival Utility:**\n\n${plant.care_note || 'Stick to natural mountain springs or filtered rainwater for hydration.'}`;
+    }
+
+    // Danger / is it safe
+    if (q.match(/danger|safe|harm|toxic|poison|risk|deadly|fatal|hazard|warning/)) {
+      if (plant.safety === 'poisonous') {
+        return `⛔ **DANGER LEVEL: ${plant.danger_level.toUpperCase()}**\n\n**${plant.plant_name}** is dangerous.\n\n• **Hazard:** ${plant.care_note}\n• **Emergency Treatment:** ${plant.first_aid || 'Do not ingest or touch. Keep away from pets and campfires.'}`;
+      } else if (plant.safety === 'safe' || plant.safety === 'edible') {
+        return `✅ **SAFE STATUS:**\n\n**${plant.plant_name}** is classified as **${plant.safety.toUpperCase()}** (${plant.danger_level}).\n\n${plant.description}`;
+      }
+      return `⚠️ **CAUTION:**\n\n**${plant.plant_name}** danger level: **${plant.danger_level}**.\n\n${plant.care_note}`;
+    }
+
+    // Default fallback
+    return `🌿 **${plant.plant_name}** (${plant.local_name} • *${plant.scientific_name}*):\n\n${plant.description}\n\n💡 **Trail Survival Guide:** ${plant.care_note}\n\n_Ask me more: "Can I eat it?", "Can I touch it?", "What is the first aid?", or "Where does it grow?"_`;
+  };
+
+  const handleAiSend = () => {
+    if (!aiInput.trim() || !scannedResult || aiThinking) return;
+    const userMsg = aiInput.trim();
+    setAiInput('');
+    setAiMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+    setAiThinking(true);
+
+    // Simulate AI "thinking" delay (300-700ms)
+    const delay = 300 + Math.random() * 400;
+    setTimeout(() => {
+      const answer = generateOfflineAIAnswer(userMsg, scannedResult);
+      setAiMessages((prev) => [...prev, { role: 'ai', text: answer }]);
+      setAiThinking(false);
+      setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+    }, delay);
+  };
+
 
   // Filter dictionary
   const filteredDictionary = plantDictionary.filter((p) => {
@@ -1384,6 +1623,92 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                   </div>
                 </div>
               </>
+            ) : !scannedResult.isPlant ? (
+              /* NON-PLANT UNRECOGNIZED SUBJECT CARD */
+              <div className="w-full max-w-md bg-slate-900 border border-red-500/30 text-white rounded-3xl p-5 shadow-2xl flex flex-col gap-3.5 my-auto max-h-[85vh] overflow-y-auto no-scrollbar">
+                {/* Header Tag */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <span className="text-[11px] font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <AlertTriangle size={14} /> Scan Result: Unrecognized
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-red-300 bg-red-500/20 border-red-500/30">
+                      Not a Plant
+                    </span>
+                    <button
+                      onClick={handleSpeakDefinition}
+                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-red-300 transition cursor-pointer"
+                      title={isSpeaking ? 'Stop Audio' : 'Speak Definition'}
+                    >
+                      {isSpeaking ? <VolumeX size={14} className="text-rose-400 animate-pulse" /> : <Volume2 size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scanned Photo with "Not a Plant" Overlay */}
+                <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
+                  <img
+                    src={capturedPhotoUrl || scannedResult.photo_url}
+                    alt="Scanned item"
+                    className="w-full h-full object-cover"
+                  />
+                  <span className="absolute top-2.5 left-2.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-1 bg-red-600 text-white">
+                    <AlertTriangle size={13} />
+                    Not a Recognized Plant
+                  </span>
+                  <div className="absolute bottom-2.5 left-2.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-300 border border-white/10 flex items-center gap-1.5">
+                    <MapPin size={11} className="text-red-400" />
+                    <span>{scannedResult.gps || 'Trail Location'} • {scannedResult.scanned_at}</span>
+                  </div>
+                </div>
+
+                {/* Warning / Guidance Message */}
+                <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-500/30 text-xs text-red-200 leading-relaxed space-y-2">
+                  <p className="font-bold text-sm text-white flex items-center gap-2">
+                    <span>🚫 No Botanical Foliage Detected</span>
+                  </p>
+                  <p className="text-slate-300">
+                    {scannedResult.reason || 'The scanned image does not contain recognizable plant features (chlorophyll, leaf textures, flowers, or berries).'}
+                  </p>
+                  <div className="pt-2 border-t border-white/10 space-y-1 text-[11px] text-slate-300">
+                    <p className="font-bold text-amber-300">Tips for an accurate botanical scan:</p>
+                    <p>🌿 Point the camera directly at wild leaves, ferns, berries, or flowers.</p>
+                    <p>☀️ Ensure clear, well-lit trail conditions.</p>
+                    <p>🔍 Center the plant within the viewfinder reticle.</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={resetScanner}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg active:scale-95 transition cursor-pointer"
+                  >
+                    <Camera size={16} /> Scan Plant Again
+                  </button>
+                  <button
+                    onClick={() => { stopSpeech(); stopCamera(); setActiveTab('dictionary'); }}
+                    className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                  >
+                    <BookOpen size={16} /> Browse 24 Species
+                  </button>
+                </div>
+
+                {/* Offline AI Botanical Assistant - Disabled / Refusal State */}
+                <div className="border-t border-white/10 pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Sparkles size={12} className="text-slate-500" /> Offline Plant AI Assistant
+                    </p>
+                    <span className="text-[10px] text-red-400 font-semibold bg-red-950/60 px-2 py-0.5 rounded-full border border-red-500/30">
+                      Plant Scan Required
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-[11px] text-slate-400 leading-relaxed">
+                    ℹ️ The AI botanical assistant only answers questions when a valid plant is identified. Because this item was not recognized as a plant, it will not answer questions about it.
+                  </div>
+                </div>
+              </div>
             ) : (
               /* SYSTEM BOTANICAL DEFINITION CARD (Derived from User's Scanned Camera Photo) */
               <div className="w-full max-w-md bg-slate-900 border border-slate-700 text-white rounded-3xl p-5 shadow-2xl flex flex-col gap-3.5 my-auto max-h-[85vh] overflow-y-auto no-scrollbar">
@@ -1393,8 +1718,15 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     <Sparkles size={14} /> System Botanical Definition
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                      {scannedResult.confidence}% Confidence Match
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      scannedResult.confidence < 85
+                        ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
+                        : 'text-emerald-300 bg-emerald-500/20 border-emerald-500/30'
+                    }`}>
+                      {scannedResult.confidence < 85
+                        ? `⚠️ Low Confidence — ${scannedResult.confidence}%`
+                        : `${scannedResult.confidence}% Confidence Match`
+                      }
                     </span>
                     <button
                       onClick={handleSpeakDefinition}
@@ -1405,6 +1737,21 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     </button>
                   </div>
                 </div>
+
+                {/* Low Confidence Warning Banner */}
+                {scannedResult.confidence < 85 && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-950/60 border border-amber-500/40 text-amber-300">
+                    <AlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-400 animate-pulse" />
+                    <div className="text-xs leading-relaxed">
+                      <p className="font-bold text-amber-200 mb-0.5">Not confident — closest match:</p>
+                      <p>
+                        The scan returned a low confidence score of <strong>{scannedResult.confidence}%</strong>.
+                        The closest match found is <strong>{scannedResult.plant_name}</strong> ({scannedResult.local_name}).
+                        Consider scanning again in better lighting, or browse the offline catalog to manually identify this plant.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Scanned Photo (User's Actual Camera Capture with GPS Stamp) */}
                 <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
@@ -1533,6 +1880,91 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     <BookOpen size={16} /> All 24 Species
                   </button>
                 </div>
+
+                {/* ── OFFLINE AI PLANT ASSISTANT CHAT ──────────────────── */}
+                <div className="border-t border-white/10 pt-3 space-y-2">
+                  <p className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Sparkles size={12} /> Offline Plant AI Assistant
+                    <span className="text-[9px] font-normal normal-case text-slate-400 ml-1">— ask anything about this plant</span>
+                  </p>
+
+                  {/* Suggested quick questions */}
+                  {aiMessages.length === 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Is it edible?', 'Can I touch it?', 'What is the first aid?', 'Where does it grow?', 'Is it dangerous?'].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => {
+                            setAiInput(q);
+                            setTimeout(() => {
+                              setAiMessages((prev) => [...prev, { role: 'user', text: q }]);
+                              setAiThinking(true);
+                              setTimeout(() => {
+                                const answer = generateOfflineAIAnswer(q, scannedResult);
+                                setAiMessages((prev) => [...prev, { role: 'ai', text: answer }]);
+                                setAiThinking(false);
+                                setAiInput('');
+                                setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+                              }, 400 + Math.random() * 300);
+                            }, 0);
+                          }}
+                          className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-medium hover:bg-emerald-500/20 active:scale-95 transition cursor-pointer"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Chat Messages */}
+                  {aiMessages.length > 0 && (
+                    <div className="max-h-48 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+                      {aiMessages.map((msg, i) => (
+                        <div
+                          key={i}
+                          className={`flex ${ msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div className={`max-w-[88%] px-3 py-2 rounded-2xl text-[11px] leading-relaxed whitespace-pre-line ${
+                            msg.role === 'user'
+                              ? 'bg-emerald-600/80 text-white rounded-br-sm'
+                              : 'bg-white/10 text-slate-200 border border-white/10 rounded-bl-sm'
+                          }`}>
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
+                      {aiThinking && (
+                        <div className="flex justify-start">
+                          <div className="bg-white/10 border border-white/10 rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={aiChatEndRef} />
+                    </div>
+                  )}
+
+                  {/* Input Row */}
+                  <div className="flex gap-2">
+                    <input
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAiSend()}
+                      placeholder="Ask: Is it safe to eat? What if I touch it?"
+                      disabled={aiThinking}
+                      className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={handleAiSend}
+                      disabled={!aiInput.trim() || aiThinking}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-40 active:scale-95 transition cursor-pointer"
+                    >
+                      Ask
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1584,6 +2016,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     setCapturedPhotoUrl(plant.image_url);
                     setScannedResult({
                       ...plant,
+                      isPlant: true,
                       photo_url: plant.image_url,
                       scanned_at: 'Botanical Catalog',
                       confidence: 100,
@@ -1662,7 +2095,10 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     key={scan.id}
                     onClick={() => {
                       setCapturedPhotoUrl(scan.photo_url);
-                      setScannedResult(scan);
+                      setScannedResult({
+                        ...scan,
+                        isPlant: scan.isPlant !== false,
+                      });
                       setActiveTab('camera');
                     }}
                     className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center gap-3 cursor-pointer hover:bg-white/10 transition"

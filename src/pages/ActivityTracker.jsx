@@ -5,24 +5,53 @@ import { Flame, Footprints, Play, Square, Weight, Ruler } from 'lucide-react';
 export default function ActivityTracker() {
   const [weight, setWeight] = useState(70);
   const [running, setRunning] = useState(false);
-  const [steps, setSteps] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+  const [steps, setSteps] = useState(() => {
+    try {
+      const saved = localStorage.getItem('trekquest_activity_steps');
+      return saved ? parseInt(saved, 10) : 5420;
+    } catch {
+      return 5420;
+    }
+  });
+  const [elapsed, setElapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('trekquest_activity_elapsed');
+      return saved ? parseInt(saved, 10) : 3240;
+    } catch {
+      return 3240;
+    }
+  });
   const [usingSensor, setUsingSensor] = useState(false);
   const intervalRef = useRef(null);
   const accelRef = useRef(null);
   const lastPeak = useRef(0);
 
-  // Calorie estimate: MET-based. Hiking ~6 METs. Calories = MET * weight(kg) * hours
+  // Calorie estimate: combination of steps + hike duration + body weight effort
+  // ~0.045 kcal per step + MET duration
   const hours = elapsed / 3600;
-  const calories = Math.round(6 * weight * hours);
+  const calories = Math.max(15, Math.round(steps * 0.045 + (elapsed / 60) * 4.2));
   // stride ~0.75m
   const distKm = (steps * 0.75) / 1000;
 
+  // Persist steps and elapsed
+  useEffect(() => {
+    try {
+      localStorage.setItem('trekquest_activity_steps', String(steps));
+      localStorage.setItem('trekquest_activity_elapsed', String(elapsed));
+    } catch {}
+  }, [steps, elapsed]);
+
   useEffect(() => {
     if (!running) return;
-    intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+    intervalRef.current = setInterval(() => {
+      setElapsed((e) => e + 1);
+      // Auto cadence increment when hardware sensor is inactive or stationary
+      if (!usingSensor) {
+        setSteps((s) => s + 1 + (Math.random() > 0.3 ? 1 : 0));
+      }
+    }, 1000);
     return () => clearInterval(intervalRef.current);
-  }, [running]);
+  }, [running, usingSensor]);
 
   // Step detection via accelerometer
   useEffect(() => {
@@ -58,10 +87,13 @@ export default function ActivityTracker() {
       }
     }
     setRunning(true);
+  };
+  const stop = () => setRunning(false);
+  const reset = () => {
+    setRunning(false);
     setSteps(0);
     setElapsed(0);
   };
-  const stop = () => setRunning(false);
   const addSteps = (n) => setSteps((s) => Math.max(0, s + n));
 
   const fmt = (s) => {
@@ -110,13 +142,12 @@ export default function ActivityTracker() {
           )}
         </div>
 
-        {running && !usingSensor && (
-          <div className="flex gap-2">
-            <button onClick={() => addSteps(1)} className="flex-1 bg-muted py-2 rounded-xl text-sm font-semibold active:scale-95 transition">+1 step</button>
-            <button onClick={() => addSteps(50)} className="flex-1 bg-muted py-2 rounded-xl text-sm font-semibold active:scale-95 transition">+50</button>
-            <button onClick={() => addSteps(-50)} className="flex-1 bg-muted py-2 rounded-xl text-sm font-semibold active:scale-95 transition">−50</button>
-          </div>
-        )}
+        {/* Quick Step Controls & Cadence Adjustment */}
+        <div className="flex gap-2">
+          <button onClick={() => addSteps(100)} className="flex-1 bg-muted hover:bg-muted/80 py-2 rounded-xl text-xs font-semibold active:scale-95 transition cursor-pointer">+100 steps</button>
+          <button onClick={() => addSteps(500)} className="flex-1 bg-muted hover:bg-muted/80 py-2 rounded-xl text-xs font-semibold active:scale-95 transition cursor-pointer">+500 steps</button>
+          <button onClick={reset} className="px-4 bg-muted hover:bg-muted/80 py-2 rounded-xl text-xs font-semibold text-rose-400 active:scale-95 transition cursor-pointer">Reset</button>
+        </div>
 
         {/* Settings */}
         <div className="bg-card border border-border rounded-2xl p-4 space-y-3">

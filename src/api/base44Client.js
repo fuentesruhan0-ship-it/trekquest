@@ -210,7 +210,7 @@ export const base44 = {
   entities: {
     BackpackingItem: createLocalEntityStore('BackpackingItem'),
     EmergencyInfo: createLocalEntityStore('EmergencyInfo'),
-    Hike: createLocalEntityStore('Hike', defaultHikes),
+    Hike: createLocalEntityStore('Hike'),
     JournalEntry: createLocalEntityStore('JournalEntry'),
     PlantScan: createLocalEntityStore('PlantScan'),
   },

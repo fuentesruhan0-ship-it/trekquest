@@ -154,8 +154,8 @@ export function getTileCoordinates(bounds, minZoom = 13, maxZoom = 15) {
   return tiles;
 }
 
-// Generate full URLs for all desired layers
-export function generateTileUrls(bounds, minZoom = 13, maxZoom = 15, layerTypes = ['satellite', 'topo']) {
+// Generate full URLs for all desired layers (defaults to all 3: Satellite, Topo, and Outdoor/Streets)
+export function generateTileUrls(bounds, minZoom = 13, maxZoom = 15, layerTypes = ['satellite', 'topo', 'streets']) {
   const coords = getTileCoordinates(bounds, minZoom, maxZoom);
   const urls = [];
 

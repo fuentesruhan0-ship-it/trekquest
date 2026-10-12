@@ -60,8 +60,23 @@ self.addEventListener('fetch', (event) => {
   if (isMapTile) {
     event.respondWith(
       caches.open(TILE_CACHE_NAME).then(async (tileCache) => {
-        const cached = await tileCache.match(request);
+        let cached = await tileCache.match(request);
+        if (!cached && url.hostname.includes('opentopomap.org')) {
+          for (const sub of ['a', 'b', 'c']) {
+            const altUrl = request.url.replace(/[abc]\.tile\.opentopomap\.org/, `${sub}.tile.opentopomap.org`);
+            cached = await tileCache.match(altUrl);
+            if (cached) break;
+          }
+        }
+        if (!cached && url.hostname.includes('tile.openstreetmap.org')) {
+          for (const sub of ['a', 'b', 'c']) {
+            const altUrl = request.url.replace(/[abc]\.tile\.openstreetmap\.org/, `${sub}.tile.openstreetmap.org`);
+            cached = await tileCache.match(altUrl);
+            if (cached) break;
+          }
+        }
         if (cached) return cached;
+
         try {
           const networkResponse = await fetch(request);
           if (networkResponse && networkResponse.status === 200) {
@@ -69,16 +84,38 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         } catch (err) {
-          // If offline and tile not cached, return graceful offline topographic grid tile (never break Leaflet)
+          // If offline and tile not cached, return graceful layer-aware offline vector tile (never breaks Leaflet)
+          const isSatellite = url.hostname.includes('arcgisonline.com');
+          const isTopo = url.hostname.includes('opentopomap.org');
+
+          let bgFill = '#0a1410';
+          let gridStroke = '#16281e';
+          let layerTag = 'OUTDOOR MAP';
+          let accentColor = '#38bdf8';
+
+          if (isSatellite) {
+            bgFill = '#070f0b';
+            gridStroke = '#132319';
+            layerTag = 'SATELLITE';
+            accentColor = '#10b981';
+          } else if (isTopo) {
+            bgFill = '#0d1811';
+            gridStroke = '#1a3324';
+            layerTag = 'TOPO CONTOURS';
+            accentColor = '#34d399';
+          }
+
           const fallbackSvg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-              <rect width="256" height="256" fill="#090d16" stroke="#1e293b" stroke-width="1"/>
-              <path d="M0 64 H256 M0 128 H256 M0 192 H256 M64 0 V256 M128 0 V256 M192 0 V256" stroke="#172033" stroke-width="0.75" stroke-dasharray="3,3"/>
-              <circle cx="128" cy="120" r="14" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-              <text x="128" y="124" text-anchor="middle" fill="#94a3b8" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" font-weight="700">MAP OFFLINE</text>
-              <text x="128" y="142" text-anchor="middle" fill="#64748b" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8">Preload in App</text>
+              <rect width="256" height="256" fill="${bgFill}"/>
+              <path d="M0 64 H256 M0 128 H256 M0 192 H256 M64 0 V256 M128 0 V256 M192 0 V256" stroke="${gridStroke}" stroke-width="0.75" stroke-dasharray="3,3"/>
+              ${isTopo ? '<path d="M20 180 Q80 120 140 170 T240 130 M0 90 Q70 40 160 80 T256 50" fill="none" stroke="#224230" stroke-width="1.2" stroke-dasharray="5,3"/>' : ''}
+              <circle cx="128" cy="116" r="16" fill="${bgFill}" stroke="${gridStroke}" stroke-width="1.5"/>
+              <text x="128" y="120" text-anchor="middle" fill="${accentColor}" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="800" letter-spacing="1">OFFLINE</text>
+              <text x="128" y="140" text-anchor="middle" fill="#64748b" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="7.5" font-weight="600">${layerTag}</text>
             </svg>
           `.trim();
+
           return new Response(fallbackSvg, {
             status: 200,
             headers: {

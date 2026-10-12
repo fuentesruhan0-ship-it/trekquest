@@ -4,13 +4,11 @@ import { base44 } from '@/api/base44Client';
 import { Backpack, Plus, Check, Trash2, Lightbulb } from 'lucide-react';
 
 const categories = {
-  essential: { label: 'Essentials', color: 'bg-red-100 text-red-700' },
-  navigation: { label: 'Navigation', color: 'bg-emerald-100 text-emerald-700' },
-  clothing: { label: 'Clothing', color: 'bg-blue-100 text-blue-700' },
-  safety: { label: 'Safety', color: 'bg-amber-100 text-amber-700' },
-  food: { label: 'Food & Water', color: 'bg-orange-100 text-orange-700' },
-  shelter: { label: 'Shelter', color: 'bg-purple-100 text-purple-700' },
-  other: { label: 'Other', color: 'bg-slate-100 text-slate-700' },
+  clothing: { label: 'Clothing & Footwear', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  shelter: { label: 'Shelter & Sleep', color: 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' },
+  food: { label: 'Food & Hydration', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
+  safety: { label: 'Safety & Navigation', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
+  other: { label: 'Trail Essentials & Other', color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
 };
 
 const tips = [
@@ -22,21 +20,23 @@ const tips = [
 ];
 
 const defaults = [
-  { name: 'Map & compass', category: 'navigation' },
-  { name: 'Extra water', category: 'food' },
-  { name: 'Extra food', category: 'food' },
-  { name: 'First aid kit', category: 'safety' },
-  { name: 'Rain jacket', category: 'clothing' },
-  { name: 'Headlamp', category: 'essential' },
-  { name: 'Sun protection', category: 'essential' },
-  { name: 'Emergency shelter', category: 'shelter' },
+  { name: 'Trekking boots & extra wool socks', category: 'clothing' },
+  { name: 'Moisture-wicking base layers & rain jacket', category: 'clothing' },
+  { name: 'Lightweight trail tent or hammock with tarp', category: 'shelter' },
+  { name: 'Sleeping bag & thermal sleeping pad', category: 'shelter' },
+  { name: '3L Water bladder & purification tablets', category: 'food' },
+  { name: 'High-calorie trail trail mix, energy bars & stove', category: 'food' },
+  { name: 'Topographic map & magnetic compass', category: 'safety' },
+  { name: 'Comprehensive mountain first-aid kit', category: 'safety' },
+  { name: 'Headlamp with extra rechargeable batteries', category: 'other' },
+  { name: 'Multi-tool knife & whistle', category: 'other' },
 ];
 
 export default function Backpacking() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
-  const [newCat, setNewCat] = useState('essential');
+  const [newCat, setNewCat] = useState('clothing');
 
   const load = async () => {
     try {
@@ -64,6 +64,26 @@ export default function Backpacking() {
     setItems((i) => i.map((x) => (x.id === item.id ? { ...x, packed: !x.packed } : x)));
   };
 
+  const markAllPacked = async () => {
+    const updated = items.map((i) => ({ ...i, packed: true }));
+    setItems(updated);
+    for (const item of items) {
+      if (!item.packed) {
+        base44.entities.BackpackingItem.update(item.id, { packed: true }).catch(() => {});
+      }
+    }
+  };
+
+  const unmarkAll = async () => {
+    const updated = items.map((i) => ({ ...i, packed: false }));
+    setItems(updated);
+    for (const item of items) {
+      if (item.packed) {
+        base44.entities.BackpackingItem.update(item.id, { packed: false }).catch(() => {});
+      }
+    }
+  };
+
   const remove = async (id) => {
     await base44.entities.BackpackingItem.delete(id);
     setItems((i) => i.filter((x) => x.id !== id));
@@ -74,22 +94,42 @@ export default function Backpacking() {
 
   const grouped = {};
   items.forEach((i) => {
-    if (!grouped[i.category]) grouped[i.category] = [];
-    grouped[i.category].push(i);
+    const c = categories[i.category] ? i.category : 'other';
+    if (!grouped[c]) grouped[c] = [];
+    grouped[c].push(i);
   });
 
   return (
     <div className="min-h-full">
       <PageHeader title="Backpacking Guide" subtitle="Checklist & hiking tips" icon={Backpack} accent="bg-amber-600" />
       <div className="p-4 space-y-4">
-        {/* Progress */}
-        <div className="bg-card border border-border rounded-2xl p-4">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="font-semibold">Packed</span>
-            <span className="text-muted-foreground">{packedCount}/{items.length} ({progress}%)</span>
+        {/* Progress & Mark All as Packed Button */}
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+          <div className="flex justify-between items-center text-sm">
+            <div>
+              <span className="font-bold text-foreground">Packing Progress</span>
+              <p className="text-xs text-muted-foreground">{packedCount}/{items.length} packed ({progress}%)</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={markAllPacked}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition active:scale-95 cursor-pointer flex items-center gap-1"
+              >
+                <Check size={14} />
+                <span>Mark all as packed</span>
+              </button>
+              {packedCount > 0 && (
+                <button
+                  onClick={unmarkAll}
+                  className="px-2.5 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground text-xs font-semibold transition active:scale-95 cursor-pointer"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-amber-500 transition-all" style={{ width: `${progress}%` }} />
+          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
         </div>
 
