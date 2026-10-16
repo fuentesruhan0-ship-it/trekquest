@@ -27,6 +27,26 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
+  // Listen for local profile update events for cross-component synchrony
+  React.useEffect(() => {
+    const handleProfileUpdated = (e) => {
+      if (e?.detail) {
+        setCustomProfile(e.detail);
+      } else {
+        try {
+          const stored = JSON.parse(localStorage.getItem('trekquest_custom_profile') || '{}');
+          setCustomProfile(stored);
+        } catch {}
+      }
+    };
+    window.addEventListener('trekquest_profile_updated', handleProfileUpdated);
+    window.addEventListener('storage', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('trekquest_profile_updated', handleProfileUpdated);
+      window.removeEventListener('storage', handleProfileUpdated);
+    };
+  }, []);
+
   // Whenever user signs in online via Clerk, cache their profile for offline use
   React.useEffect(() => {
     if (clerkUser && isSignedIn) {
@@ -34,7 +54,7 @@ export const AuthProvider = ({ children }) => {
         id: clerkUser.id,
         full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
         email: clerkUser.primaryEmailAddress?.emailAddress || '',
-        photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
+        photo_url: customProfile.photo_url !== undefined ? customProfile.photo_url : (clerkUser.imageUrl || ''),
         cachedAt: Date.now(),
       };
       setCachedUser(session);
@@ -83,7 +103,7 @@ export const AuthProvider = ({ children }) => {
         id: clerkUser.id,
         full_name: customProfile.full_name || clerkUser.fullName || clerkUser.firstName || clerkUser.username || 'Hiker',
         email: clerkUser.primaryEmailAddress?.emailAddress || '',
-        photo_url: customProfile.photo_url || clerkUser.imageUrl || '',
+        photo_url: customProfile.photo_url !== undefined ? customProfile.photo_url : (clerkUser.imageUrl || ''),
         raw: clerkUser,
         isOfflineSession: false,
       };
@@ -92,7 +112,16 @@ export const AuthProvider = ({ children }) => {
       return {
         ...cachedUser,
         full_name: customProfile.full_name || cachedUser.full_name || 'Hiker',
-        photo_url: customProfile.photo_url || cachedUser.photo_url || '',
+        photo_url: customProfile.photo_url !== undefined ? customProfile.photo_url : (cachedUser.photo_url || ''),
+        isOfflineSession: true,
+      };
+    }
+    if (customProfile.full_name || customProfile.photo_url) {
+      return {
+        id: 'hiker_offline',
+        full_name: customProfile.full_name || 'Hiker',
+        email: 'hiker@trekquest.app',
+        photo_url: customProfile.photo_url || '',
         isOfflineSession: true,
       };
     }
