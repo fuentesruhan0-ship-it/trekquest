@@ -123,6 +123,20 @@ export const AuthProvider = ({ children }) => {
     window.location.href = '/login';
   };
 
+  const signInWithCredentials = async ({ email, password, name }) => {
+    const displayName = name || (email ? email.split('@')[0] : 'TrekQuest Hiker');
+    const session = {
+      id: `user_${Date.now()}`,
+      full_name: displayName,
+      email: email || 'hiker@trekquest.app',
+      photo_url: '',
+      cachedAt: Date.now(),
+    };
+    setCachedUser(session);
+    localStorage.setItem('trekquest_cached_session', JSON.stringify(session));
+    return session;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -137,6 +151,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         navigateToLogin,
         updateProfile,
+        signInWithCredentials,
         checkUserAuth: async () => {},
         checkAppState: async () => {},
       }}

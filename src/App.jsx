@@ -27,6 +27,7 @@ import SafeReturn from '@/pages/SafeReturn';
 import Profile from '@/pages/Profile';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
+import Landing from '@/pages/Landing';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth } = useAuth();
@@ -43,9 +44,10 @@ const AuthenticatedApp = () => {
   // Render the routes with Clerk-protected routes
   return (
     <Routes>
+      <Route path="/landing" element={<Landing />} />
       <Route path="/login/*" element={<Login />} />
       <Route path="/register/*" element={<Register />} />
-      <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
+      <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/landing" replace />} />}>
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/map" element={<MapPage />} />
@@ -61,7 +63,7 @@ const AuthenticatedApp = () => {
           <Route path="/activity" element={<ActivityTracker />} />
           <Route path="/mountain-tracker" element={<MountainTracker />} />
           <Route path="/compass" element={<Compass />} />
-          <Route path="/emergency" element={<EmergencyCard />} />
+          <Route path="/emergency" element={<Navigate to="/profile" replace />} />
           <Route path="/safe-return" element={<SafeReturn />} />
           <Route path="/profile" element={<Profile />} />
         </Route>

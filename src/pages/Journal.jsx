@@ -1,145 +1,219 @@
-import { useState, useEffect, useRef } from 'react';
-import PageHeader from '@/components/PageHeader';
-import { base44 } from '@/api/base44Client';
-import { BookOpen, Plus, Camera, Trash2, MapPin, X } from 'lucide-react';
-import { Image } from '@/components/ui/image';
-
-const moodConfig = {
-  amazing: { label: 'Amazing', emoji: '🤩', color: 'bg-emerald-100' },
-  good: { label: 'Good', emoji: '😊', color: 'bg-sky-100' },
-  okay: { label: 'Okay', emoji: '😐', color: 'bg-amber-100' },
-  tough: { label: 'Tough', emoji: '😣', color: 'bg-red-100' },
-};
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { BookOpen, Plus, Trash2, ChevronLeft } from 'lucide-react';
 
 export default function Journal() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', location: '', mood: 'good', notes: '' });
-  const [photo, setPhoto] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const fileRef = useRef(null);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const fromHike = searchParams.get('from') === 'hike';
 
-  const load = async () => {
+  // Load entries from localStorage
+  useEffect(() => {
     try {
-      const data = await base44.entities.JournalEntry.list('-date', 50);
-      setEntries(data);
-    } catch {} finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
-
-  const pickPhoto = (e) => {
-    const f = e.target.files?.[0];
-    if (f) setPhoto(f);
-  };
-
-  const save = async () => {
-    if (!form.title.trim()) return;
-    setSaving(true);
-    let photo_url = null;
-    if (photo) {
-      try {
-        const res = await base44.integrations.Core.UploadPublicFile({ file: photo });
-        photo_url = res.file_url;
-      } catch {}
+      const saved = localStorage.getItem('trekquest_journal_entries');
+      if (saved) {
+        setEntries(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error('Error loading entries:', e);
     }
-    await base44.entities.JournalEntry.create({
-      title: form.title.trim(),
-      location: form.location.trim(),
-      mood: form.mood,
-      notes: form.notes,
-      date: new Date().toISOString().slice(0, 10),
-      photo_url,
-    });
-    setForm({ title: '', location: '', mood: 'good', notes: '' });
-    setPhoto(null);
-    setShowForm(false);
-    setSaving(false);
-    load();
+  }, []);
+
+  const handleBack = () => {
+    navigate('/');
   };
 
-  const remove = async (id) => {
-    await base44.entities.JournalEntry.delete(id);
-    load();
+  const handleSave = () => {
+    if (!title.trim()) return;
+    
+    const newEntry = {
+      id: Date.now().toString(),
+      title: title.trim(),
+      content: content.trim(),
+      date: new Date().toISOString().slice(0, 10),
+    };
+    
+    const updated = [newEntry, ...entries];
+    setEntries(updated);
+    localStorage.setItem('trekquest_journal_entries', JSON.stringify(updated));
+    
+    setTitle('');
+    setContent('');
+    setShowForm(false);
+  };
+
+  const handleDelete = (id) => {
+    const updated = entries.filter(e => e.id !== id);
+    setEntries(updated);
+    localStorage.setItem('trekquest_journal_entries', JSON.stringify(updated));
   };
 
   return (
-    <div className="min-h-full">
-      <PageHeader title="Travel Journal" subtitle="Save your hiking memories" icon={BookOpen} accent="bg-teal-600" />
-      <div className="p-4 space-y-4">
+    <div style={{ backgroundColor: '#0f172a', color: 'white', minHeight: '100vh' }}>
+      {/* Header */}
+      <div style={{ 
+        position: 'sticky', 
+        top: 0, 
+        zIndex: 10, 
+        backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+        backdropFilter: 'blur(8px)', 
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)', 
+        padding: '16px' 
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={handleBack}
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '12px',
+              backgroundColor: 'rgba(20, 184, 166, 0.2)',
+              border: '1px solid rgba(20, 184, 166, 0.3)',
+              color: '#2dd4bf',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <BookOpen size={18} />
+            </div>
+            <div>
+              <h1 style={{ fontSize: '18px', fontWeight: 'bold', color: 'white', margin: 0 }}>Travel Journal</h1>
+              <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Save your hiking memories</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px' }}>
         <button
-          onClick={() => setShowForm((s) => !s)}
-          className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-3 rounded-xl font-semibold active:scale-95 transition"
+          onClick={() => setShowForm(!showForm)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            backgroundColor: '#0d9488',
+            color: 'white',
+            padding: '12px',
+            borderRadius: '12px',
+            fontWeight: '600',
+            border: 'none',
+            cursor: 'pointer'
+          }}
         >
           <Plus size={18} /> New Journal Entry
         </button>
 
         {showForm && (
-          <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
-            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Entry title" className="w-full px-3 py-2 rounded-xl bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Location / trail" className="w-full px-3 py-2 rounded-xl bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Mood</p>
-              <div className="flex gap-2">
-                {Object.entries(moodConfig).map(([k, v]) => (
-                  <button key={k} onClick={() => setForm({ ...form, mood: k })}
-                    className={`flex-1 py-2 rounded-xl text-sm font-medium ${form.mood === k ? 'bg-teal-600 text-white' : 'bg-muted'}`}>
-                    {v.emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pickPhoto} />
-            <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-muted py-2.5 rounded-xl text-sm font-medium active:scale-95 transition">
-              <Camera size={16} /> {photo ? photo.name : 'Add photo'}
-            </button>
-            {photo && (
-              <div className="relative">
-                <img src={URL.createObjectURL(photo)} alt="preview" className="w-full h-40 object-cover rounded-xl" />
-                <button onClick={() => setPhoto(null)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center"><X size={14} /></button>
-              </div>
-            )}
-            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="What happened on the trail?" className="w-full px-3 py-2 rounded-xl bg-muted text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" rows={3} />
-            <button onClick={save} disabled={saving} className="w-full bg-teal-700 text-white py-2.5 rounded-xl font-semibold active:scale-95 transition disabled:opacity-60">
-              {saving ? 'Saving…' : 'Save Entry'}
+          <div style={{
+            backgroundColor: '#1e293b',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '16px',
+            padding: '16px',
+            marginTop: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Entry title"
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '12px',
+                backgroundColor: '#334155',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: 'white',
+                fontSize: '14px'
+              }}
+            />
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Write your journal entry here..."
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '12px',
+                backgroundColor: '#334155',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: 'white',
+                fontSize: '14px',
+                resize: 'none',
+                minHeight: '120px'
+              }}
+              rows={5}
+            />
+            <button
+              onClick={handleSave}
+              style={{
+                width: '100%',
+                backgroundColor: '#0f766e',
+                color: 'white',
+                padding: '12px',
+                borderRadius: '12px',
+                fontWeight: '600',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Save Entry
             </button>
           </div>
         )}
 
-        <div>
-          {loading ? <p className="text-sm text-muted-foreground">Loading…</p> :
-            entries.length === 0 ? (
-              <div className="text-center py-10 text-muted-foreground">
-                <BookOpen size={40} className="mx-auto opacity-40" />
-                <p className="text-sm mt-2">No journal entries yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {entries.map((e) => {
-                  const mc = moodConfig[e.mood] || moodConfig.good;
-                  return (
-                    <div key={e.id} className="bg-card border border-border rounded-2xl overflow-hidden">
-                      {e.photo_url && <Image src={e.photo_url} alt={e.title} className="w-full h-44 object-cover" fittingType="fill" />}
-                      <div className="p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate">{e.title}</p>
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
-                              <span>{mc.emoji}</span>
-                              {e.location && <><span>•</span><span className="flex items-center gap-0.5"><MapPin size={10} />{e.location}</span></>}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">{e.date}</p>
-                          </div>
-                          <button onClick={() => remove(e.id)} className="p-1.5 text-red-400 shrink-0"><Trash2 size={15} /></button>
-                        </div>
-                        {e.notes && <p className="text-sm text-muted-foreground mt-2">{e.notes}</p>}
-                      </div>
+        <div style={{ marginTop: '16px' }}>
+          {entries.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+              <BookOpen size={40} style={{ opacity: 0.4, margin: '0 auto' }} />
+              <p style={{ fontSize: '14px', marginTop: '8px' }}>No journal entries yet.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {entries.map((e) => (
+                <div key={e.id} style={{
+                  backgroundColor: '#1e293b',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                  padding: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '14px', fontWeight: '600', color: 'white', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</p>
+                      <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', margin: '4px 0 0 0' }}>{e.date}</p>
                     </div>
-                  );
-                })}
-              </div>
-            )
-          }
+                    <button onClick={() => handleDelete(e.id)} style={{ padding: '6px', color: '#f87171', border: 'none', background: 'none', cursor: 'pointer' }}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                  {e.content && <p style={{ fontSize: '14px', color: '#cbd5e1', marginTop: '8px', lineHeight: '1.5' }}>{e.content}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

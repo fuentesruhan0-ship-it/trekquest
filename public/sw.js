@@ -60,8 +60,17 @@ self.addEventListener('fetch', (event) => {
   if (isMapTile) {
     event.respondWith(
       caches.open(TILE_CACHE_NAME).then(async (tileCache) => {
-        const cached = await tileCache.match(request);
+        let cached = await tileCache.match(request);
+        if (!cached && (url.hostname.includes('tile.opentopomap.org') || url.hostname.includes('tile.openstreetmap.org'))) {
+          // Check alternative subdomains (a, b, c) in cache
+          for (const sub of ['a', 'b', 'c']) {
+            const altUrl = request.url.replace(/:\/\/[abc]\.tile\./, `://${sub}.tile.`);
+            cached = await tileCache.match(altUrl);
+            if (cached) break;
+          }
+        }
         if (cached) return cached;
+
         try {
           const networkResponse = await fetch(request);
           if (networkResponse && networkResponse.status === 200) {
@@ -69,22 +78,12 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         } catch (err) {
-          // If offline and tile not cached, return graceful offline topographic grid tile (never break Leaflet)
-          const fallbackSvg = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-              <rect width="256" height="256" fill="#090d16" stroke="#1e293b" stroke-width="1"/>
-              <path d="M0 64 H256 M0 128 H256 M0 192 H256 M64 0 V256 M128 0 V256 M192 0 V256" stroke="#172033" stroke-width="0.75" stroke-dasharray="3,3"/>
-              <circle cx="128" cy="120" r="14" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-              <text x="128" y="124" text-anchor="middle" fill="#94a3b8" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" font-weight="700">MAP OFFLINE</text>
-              <text x="128" y="142" text-anchor="middle" fill="#64748b" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="8">Preload in App</text>
-            </svg>
-          `.trim();
-          return new Response(fallbackSvg, {
-            status: 200,
-            headers: {
-              'Content-Type': 'image/svg+xml',
-              'Cache-Control': 'no-store',
-            },
+          // If offline and tile not in cache, return 404 so Leaflet's zoom engine
+          // keeps the parent/child zoom tiles rendered and smoothly stretched with CSS
+          // instead of wiping them out with an opaque black box!
+          return new Response('', {
+            status: 404,
+            statusText: 'Tile Not Cached',
           });
         }
       })

@@ -81,8 +81,8 @@ export default function OfflineMapModal({
     ? getRouteCorridorBounds(routePoints, 0.02)
     : currentBounds;
 
-  const minZ = 13;
-  const maxZ = zoomDetail === 'deep' ? 16 : 15;
+  const minZ = 11;
+  const maxZ = zoomDetail === 'deep' ? 17 : 16;
   const calculatedUrls = computedBounds
     ? generateTileUrls(computedBounds, minZ, maxZ, selectedLayers)
     : [];
@@ -126,6 +126,7 @@ export default function OfflineMapModal({
         layers: selectedLayers,
       });
 
+      window.dispatchEvent(new Event('offline-maps-updated'));
       setDownloadSuccess(`🎉 ${result.completed} tiles saved! 100% ready for offline hiking.`);
       await refreshStats();
     } catch (err) {
@@ -148,7 +149,7 @@ export default function OfflineMapModal({
   const handleDownloadPreset = async (preset) => {
     if (isDownloading) return;
     setPresetStatus((prev) => ({ ...prev, [preset.id]: 'downloading' }));
-    const urls = generateTileUrls(preset.bounds, 13, 16, ['satellite', 'topo']);
+    const urls = generateTileUrls(preset.bounds, 11, 16, ['satellite', 'topo']);
 
     abortControllerRef.current = new AbortController();
     try {
@@ -166,10 +167,11 @@ export default function OfflineMapModal({
         tileCount: result.completed,
         estimatedMb: parseFloat(((result.completed * 22) / 1024).toFixed(1)),
         bounds: preset.bounds,
-        zoomLevels: '13-16',
+        zoomLevels: '11-16',
         layers: ['satellite', 'topo'],
       });
 
+      window.dispatchEvent(new Event('offline-maps-updated'));
       setPresetStatus((prev) => ({ ...prev, [preset.id]: 'cached' }));
       await refreshStats();
     } catch (err) {
@@ -181,12 +183,14 @@ export default function OfflineMapModal({
 
   const handleDeleteRegion = (id) => {
     deleteOfflineRegion(id);
+    window.dispatchEvent(new Event('offline-maps-updated'));
     refreshStats();
   };
 
   const handleClearAll = async () => {
     if (window.confirm('Delete all offline cached map tiles? You will need internet to download them again.')) {
       await clearOfflineMapTiles();
+      window.dispatchEvent(new Event('offline-maps-updated'));
       await refreshStats();
     }
   };
@@ -394,8 +398,8 @@ export default function OfflineMapModal({
                         : 'border-white/10 bg-slate-900 text-slate-400'
                     }`}
                   >
-                    <p className="font-bold text-white">Standard Trail (Z13-15)</p>
-                    <p className="text-[10px] text-slate-400">Fastest download • ~1-3 MB</p>
+                    <p className="font-bold text-white">Multi-Scale (Z11-16)</p>
+                    <p className="text-[10px] text-slate-400">Full zoom in & out • ~3-6 MB</p>
                   </button>
 
                   <button
@@ -406,8 +410,8 @@ export default function OfflineMapModal({
                         : 'border-white/10 bg-slate-900 text-slate-400'
                     }`}
                   >
-                    <p className="font-bold text-white">High Detail (Z13-16)</p>
-                    <p className="text-[10px] text-slate-400">Crisp footpath zoom • ~3-8 MB</p>
+                    <p className="font-bold text-white">Ultra Detail (Z11-17)</p>
+                    <p className="text-[10px] text-slate-400">Footpath detail • ~6-12 MB</p>
                   </button>
                 </div>
               </div>

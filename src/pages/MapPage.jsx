@@ -7,7 +7,7 @@ import {
   Map as MapIcon, Trash2, Navigation, BookOpen, HeartPulse, Leaf, Save, Edit2,
   X, Check, LocateFixed, Menu, Music, Compass as CompassIcon, Scan, ChevronRight, Backpack,
   UserRound, Mountain, AlertCircle, LogOut, RefreshCw, Users, Search, Download, CloudOff,
-  Target, ArrowUpRight, Eye, ShieldCheck
+  Target, ArrowUpRight, Eye, ShieldCheck, Camera, FileText
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
@@ -16,11 +16,13 @@ import HikeInformationCard from '@/components/HikeInformationCard';
 import ActiveHikeHUD from '@/components/ActiveHikeHUD';
 import HikePreStartModal from '@/components/HikePreStartModal';
 import OfflineMapModal from '@/components/OfflineMapModal';
+import UpcomingHikesModal, { getSavedUpcomingHikes } from '@/components/UpcomingHikesModal';
 import { useAuth } from '@/lib/AuthContext';
 import CameraPlantScanner from '@/components/CameraPlantScanner';
 import MusicMode from '@/pages/Music';
 import { base44 } from '@/api/base44Client';
-import { searchBroadPlaces, calculateBearing, getCompassDirection } from '@/lib/philippinePlaces';
+import { getSavedOfflineRegions } from '@/lib/offlineMapManager';
+import { searchBroadPlaces, calculateBearing, getCompassDirection, haversine } from '@/lib/philippinePlaces';
 
 // Custom Map Markers with Live Orientation Compass Cone
 function createAvatarMapIcon(photoUrl, initial, isPinging, heading = 0) {
@@ -79,16 +81,6 @@ const waypointIcon = (label, isDest) => L.divIcon({
 });
 
 const defaultCenter = [14.5995, 120.9842]; // Manila fallback
-
-function haversine(a, b) {
-  const R = 6371;
-  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
-  const la1 = (a[0] * Math.PI) / 180;
-  const la2 = (b[0] * Math.PI) / 180;
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
 
 function routeDistance(pts) {
   let d = 0;
@@ -205,10 +197,34 @@ export default function MapPage() {
   const [editingWaypoint, setEditingWaypoint] = useState(null);
 
   // Active Hike Tracking
-  const [tracking, setTracking] = useState(false);
-  const [activeHikeDestination, setActiveHikeDestination] = useState(null); // destination passed to ActiveHikeHUD
-  const [trackPath, setTrackPath] = useState([]);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [tracking, setTracking] = useState(() => {
+    try {
+      return localStorage.getItem('trekquest_is_tracking_hike') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [activeHikeDestination, setActiveHikeDestination] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('trekquest_active_hike_destination') || 'null');
+    } catch {
+      return null;
+    }
+  }); // destination passed to ActiveHikeHUD
+  const [trackPath, setTrackPath] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('trekquest_hike_track') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem('trekquest_hike_elapsed_seconds') || '0');
+    } catch {
+      return 0;
+    }
+  });
   const [capturedPhoto, setCapturedPhoto] = useState(null);
   const [trailNoteText, setTrailNoteText] = useState('');
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -219,6 +235,7 @@ export default function MapPage() {
   const [showCompassModal, setShowCompassModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [locatePing, setLocatePing] = useState(false);
   const [locationToast, setLocationToast] = useState('');
@@ -234,7 +251,9 @@ export default function MapPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState(null);
   const [showHikeInfo, setShowHikeInfo] = useState(false);
-  const [showHikePreStart, setShowHikePreStart] = useState(false); // NEW: cinematic info screen before hike
+  const [showHikePreStart, setShowHikePreStart] = useState(false); // cinematic info screen before hike
+  const [showUpcomingHikesModal, setShowUpcomingHikesModal] = useState(false);
+  const [upcomingHikeInitialId, setUpcomingHikeInitialId] = useState(null);
   const searchTimeoutRef = useRef(null);
 
   // Compass state
@@ -245,6 +264,14 @@ export default function MapPage() {
   const [followUser, setFollowUser] = useState(true);
   const [currentMapBounds, setCurrentMapBounds] = useState(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [hasOfflineMaps, setHasOfflineMaps] = useState(() => {
+    try {
+      const regions = getSavedOfflineRegions();
+      return Array.isArray(regions) && regions.length > 0;
+    } catch {
+      return false;
+    }
+  });
   const mapInstanceRef = useRef(null);
 
   useEffect(() => {
@@ -254,11 +281,20 @@ export default function MapPage() {
       setLocationToast('⚡ Offline Mode: Using Cached Satellite & Topo Maps (Satellite GPS active)');
       setTimeout(() => setLocationToast(''), 4000);
     };
+    const handleOfflineMapUpdate = () => {
+      try {
+        const regions = getSavedOfflineRegions();
+        setHasOfflineMaps(Array.isArray(regions) && regions.length > 0);
+      } catch {}
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('offline-maps-updated', handleOfflineMapUpdate);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('offline-maps-updated', handleOfflineMapUpdate);
     };
   }, []);
 
@@ -432,11 +468,53 @@ export default function MapPage() {
     });
   };
 
-  // Check URL parameters if arrived with ?drawer=routes or from mountain search
+  // Check URL parameters if arrived with ?drawer=routes, ?startHikeId, ?viewHikeId, or from mountain search
   useEffect(() => {
     if (searchParams.get('drawer') === 'routes') {
-      setShowSavedRoutes(true);
+      setShowUpcomingHikesModal(true);
     }
+
+    // Support launching or viewing a hike from Profile or storage
+    const startHikeId = searchParams.get('startHikeId');
+    const viewHikeId = searchParams.get('viewHikeId');
+    const activeStored = localStorage.getItem('trekquest_active_hike_start');
+    const viewStored = localStorage.getItem('trekquest_view_hike');
+
+    let hikeToStart = null;
+    let hikeToView = null;
+
+    if (activeStored) {
+      try {
+        hikeToStart = JSON.parse(activeStored);
+        localStorage.removeItem('trekquest_active_hike_start');
+      } catch {}
+    } else if (startHikeId) {
+      const allUpcoming = getSavedUpcomingHikes();
+      hikeToStart = allUpcoming.find((h) => h.id === startHikeId);
+    }
+
+    if (viewStored) {
+      try {
+        hikeToView = JSON.parse(viewStored);
+        localStorage.removeItem('trekquest_view_hike');
+      } catch {}
+    } else if (viewHikeId) {
+      const allUpcoming = getSavedUpcomingHikes();
+      hikeToView = allUpcoming.find((h) => h.id === viewHikeId);
+    }
+
+    if (hikeToStart) {
+      handleStartHikeFromUpcoming(hikeToStart);
+      setLocationToast(`🚶 Starting hike: ${hikeToStart.destName || hikeToStart.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+      return;
+    } else if (hikeToView) {
+      handleViewRouteOnMapFromUpcoming(hikeToView);
+      setLocationToast(`🗺️ Route loaded: ${hikeToView.destName || hikeToView.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+      return;
+    }
+
     const lat = parseFloat(searchParams.get('lat'));
     const lng = parseFloat(searchParams.get('lng'));
     const destName = searchParams.get('destName');
@@ -486,8 +564,7 @@ export default function MapPage() {
   }, [searchQuery]);
 
   // Destination selection (via Search, Plan Route Modal, or Peak Marker)
-  // Accepts destination AND optional user-chosen starting point!
-  const handleSelectDestination = (dest, chosenStart = null) => {
+  const handleSelectDestination = (dest, chosenStart = null, autoStart = false, plannedHike = null) => {
     const activeStart = (chosenStart && Array.isArray(chosenStart)) ? chosenStart : customStart;
     if (chosenStart && Array.isArray(chosenStart)) {
       setCustomStart(chosenStart);
@@ -520,10 +597,23 @@ export default function MapPage() {
     setSearchQuery('');
     setSearchResults([]);
     setShowPlanRouteModal(false);
-    setShowHikeInfo(false);
-    setShowHikePreStart(true); // Show the cinematic info screen FIRST
-    setLocationToast(activeStart ? `📍 Route planned: Custom Start → ${dest.name}` : `📍 Destination set: ${dest.name}`);
-    setTimeout(() => setLocationToast(''), 3500);
+
+    if (autoStart) {
+      setShowHikeInfo(false);
+      setShowHikePreStart(true);
+      setLocationToast(`📍 Destination set: ${dest.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+    } else {
+      // Route planned from PlanRouteModal -> save and open Upcoming Hikes module!
+      setShowHikeInfo(false);
+      setShowHikePreStart(false);
+      setShowUpcomingHikesModal(true);
+      if (plannedHike?.id) {
+        setUpcomingHikeInitialId(plannedHike.id);
+      }
+      setLocationToast(`✅ Route saved to Upcoming Hikes: ${dest.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+    }
 
     // Immediately fit map view to the planned route
     if (mapInstanceRef.current && origin) {
@@ -534,10 +624,76 @@ export default function MapPage() {
     }
   };
 
+  // Called from UpcomingHikesModal: start a planned hike
+  const handleStartHikeFromUpcoming = (hike) => {
+    if (hike.startCoords) {
+      setCustomStart(hike.startCoords);
+      setStartMode('custom');
+      try {
+        localStorage.setItem('trekquest_custom_start', JSON.stringify(hike.startCoords));
+        localStorage.setItem('trekquest_start_mode', 'custom');
+      } catch {}
+      setFollowUser(false);
+    }
+    const destObj = {
+      id: hike.id,
+      name: hike.destName,
+      lat: hike.destCoords[0],
+      lng: hike.destCoords[1],
+      isDest: true,
+      type: hike.type,
+      region: hike.region,
+      distanceKm: hike.distanceKm,
+      estHours: hike.estHours,
+    };
+    setSelectedDestination(destObj);
+    setWaypoints([destObj]);
+    setShowUpcomingHikesModal(false);
+    setShowHikePreStart(true);
+  };
+
+  // Called from UpcomingHikesModal: preview planned route on map
+  const handleViewRouteOnMapFromUpcoming = (hike) => {
+    if (hike.startCoords) {
+      setCustomStart(hike.startCoords);
+      setStartMode('custom');
+      try {
+        localStorage.setItem('trekquest_custom_start', JSON.stringify(hike.startCoords));
+        localStorage.setItem('trekquest_start_mode', 'custom');
+      } catch {}
+      setFollowUser(false);
+    }
+    const destObj = {
+      id: hike.id,
+      name: hike.destName,
+      lat: hike.destCoords[0],
+      lng: hike.destCoords[1],
+      isDest: true,
+      type: hike.type,
+      region: hike.region,
+      distanceKm: hike.distanceKm,
+      estHours: hike.estHours,
+    };
+    setSelectedDestination(destObj);
+    setWaypoints([destObj]);
+    setShowUpcomingHikesModal(false);
+    setShowHikeInfo(true);
+    setUpcomingHikeInitialId(hike.id);
+    if (mapInstanceRef.current && hike.startCoords) {
+      try {
+        const bounds = L.latLngBounds([hike.startCoords, hike.destCoords]);
+        mapInstanceRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+      } catch {}
+    }
+    setLocationToast(`🗺️ Loaded route: ${hike.name}`);
+    setTimeout(() => setLocationToast(''), 3000);
+  };
+
   // Called from HikePreStartModal START button — launches the ActiveHikeHUD
   const handleStartHikeFromPreStart = (dest) => {
     setShowHikePreStart(false);
     setActiveHikeDestination(dest);
+    setSelectedDestination(dest);
     setTracking(true);
     const origin = (startMode === 'custom' && customStart) ? customStart : position;
     setTrackPath(origin ? [origin] : []);
@@ -584,6 +740,23 @@ export default function MapPage() {
     }, 1000);
     return () => clearInterval(timerIntervalRef.current);
   }, [tracking]);
+
+  // Save tracking state to localStorage
+  useEffect(() => {
+    localStorage.setItem('trekquest_is_tracking_hike', tracking.toString());
+  }, [tracking]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_hike_track', JSON.stringify(trackPath));
+  }, [trackPath]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_hike_elapsed_seconds', elapsedSeconds.toString());
+  }, [elapsedSeconds]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_active_hike_destination', JSON.stringify(activeHikeDestination));
+  }, [activeHikeDestination]);
 
   // Device Orientation for Digital Compass
   useEffect(() => {
@@ -818,7 +991,10 @@ export default function MapPage() {
               key="satellite"
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
               attribution="Tiles &copy; Esri World Imagery"
-              maxZoom={19}
+              maxNativeZoom={18}
+              maxZoom={22}
+              keepBuffer={6}
+              updateWhenIdle={false}
             />
           )}
 
@@ -828,7 +1004,10 @@ export default function MapPage() {
               key="topo"
               url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenTopoMap"
-              maxZoom={17}
+              maxNativeZoom={17}
+              maxZoom={22}
+              keepBuffer={6}
+              updateWhenIdle={false}
             />
           )}
 
@@ -838,7 +1017,10 @@ export default function MapPage() {
               key="streets"
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap"
-              maxZoom={19}
+              maxNativeZoom={19}
+              maxZoom={22}
+              keepBuffer={6}
+              updateWhenIdle={false}
             />
           )}
 
@@ -1238,6 +1420,114 @@ export default function MapPage() {
             )}
           </button>
 
+          {/* Camera Button - Only show when tracking hike */}
+          {tracking && (
+            <button
+              onClick={async () => {
+                try {
+                  // Check permission status first
+                  const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                  
+                  if (permissionStatus.state === 'denied') {
+                    const shouldAsk = confirm('TrekQuest needs camera access to take photos during your hike. Allow camera access?');
+                    if (!shouldAsk) return;
+                  }
+                  
+                  const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                  });
+                  const video = document.createElement('video');
+                  video.srcObject = stream;
+                  video.autoplay = true;
+                  video.playsInline = true;
+                  video.muted = true;
+                  video.className = 'fixed inset-0 w-full h-full object-cover z-[5000]';
+                  document.body.appendChild(video);
+                  
+                  const canvas = document.createElement('canvas');
+                  canvas.className = 'hidden';
+                  document.body.appendChild(canvas);
+                  
+                  const controls = document.createElement('div');
+                  controls.className = 'fixed bottom-8 left-0 right-0 flex items-center justify-center gap-4 px-4 z-[5001]';
+                  controls.innerHTML = `
+                    <button id="cancelCamera" class="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border-2 border-white text-white font-bold text-sm flex items-center justify-center cursor-pointer hover:bg-white/30 transition">✕</button>
+                    <button id="capturePhoto" class="w-20 h-20 rounded-full bg-white border-4 border-emerald-400 flex items-center justify-center cursor-pointer hover:scale-105 transition shadow-2xl"><div class="w-16 h-16 rounded-full bg-emerald-500"></div></button>
+                    <div class="w-16"></div>
+                  `;
+                  document.body.appendChild(controls);
+                  
+                  const capture = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    try {
+                      const current = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                      const updated = [...current, dataUrl];
+                      localStorage.setItem('trekquest_active_hike_photos', JSON.stringify(updated));
+                      setLocationToast('📸 Photo saved!');
+                      setTimeout(() => setLocationToast(''), 2000);
+                    } catch {}
+                    // Cleanup
+                    stream.getTracks().forEach(track => track.stop());
+                    video.remove();
+                    canvas.remove();
+                    controls.remove();
+                  };
+                  
+                  document.getElementById('capturePhoto').onclick = capture;
+                  document.getElementById('cancelCamera').onclick = () => {
+                    stream.getTracks().forEach(track => track.stop());
+                    video.remove();
+                    canvas.remove();
+                    controls.remove();
+                  };
+                } catch (err) {
+                  console.error('Camera access denied:', err);
+                  if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    const shouldAsk = confirm('Camera permission was denied. Would you like to try again?');
+                    if (shouldAsk) {
+                      // User will need to manually enable in browser settings
+                      alert('Please enable camera permissions in your browser settings and try again.');
+                    }
+                  } else {
+                    alert('Unable to access camera. Please allow camera permissions.');
+                  }
+                }
+              }}
+              className="w-12 h-12 rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-emerald-400/30 active:scale-90 transition cursor-pointer group relative"
+              title="Take Hike Photo"
+            >
+              <Camera size={22} className="group-hover:scale-110 transition" />
+              {(() => {
+                try {
+                  const photos = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                  if (photos.length > 0) {
+                    return (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white font-mono font-black text-[10px] flex items-center justify-center shadow">
+                        {photos.length}
+                      </span>
+                    );
+                  }
+                } catch {}
+                return null;
+              })()}
+            </button>
+          )}
+
+          {/* Notes/Journal Button - Only show when tracking hike */}
+          {tracking && (
+            <button
+              onClick={() => setShowNotesModal(true)}
+              className="w-12 h-12 rounded-full bg-amber-600/80 hover:bg-amber-500 text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-amber-400/30 active:scale-90 transition cursor-pointer group"
+              title="Add Notes or Journal Entry"
+            >
+              <FileText size={22} className="group-hover:scale-110 transition" />
+            </button>
+          )}
+
           {/* Music Player Button */}
           <button
             onClick={() => setShowMusicModal(true)}
@@ -1311,38 +1601,83 @@ export default function MapPage() {
           <ActiveHikeHUD
             destination={activeHikeDestination}
             currentPosition={position}
+            startPoint={(startMode === 'custom' && customStart) ? customStart : position}
             onStopHike={() => {
               setTracking(false);
               setActiveHikeDestination(null);
               setTrackPath([]);
               setElapsedSeconds(0);
+              localStorage.removeItem('trekquest_is_tracking_hike');
+              localStorage.removeItem('trekquest_hike_track');
+              localStorage.removeItem('trekquest_hike_elapsed_seconds');
               setLocationToast('⏹️ Hike ended');
               setTimeout(() => setLocationToast(''), 3000);
             }}
             onOpenScanner={() => setShowScannerModal(true)}
             onOpenMusic={() => setShowMusicModal(true)}
             onOpenCompass={() => setShowCompassModal(true)}
-            onOpenEmergency={() => { setSidebarOpen(false); navigate('/emergency'); }}
+            onOpenEmergency={() => { setSidebarOpen(false); navigate('/profile'); }}
             onOpenOfflineMaps={() => setShowOfflineModal(true)}
           />
         )}
 
         {/* ── HIKE INFORMATION GUIDE CARD ───────────────────────────────── */}
-        {selectedDestination && showHikeInfo && !tracking && (
+        {(selectedDestination || activeHikeDestination) && showHikeInfo && (
           <HikeInformationCard
-            destination={selectedDestination}
+            destination={selectedDestination || activeHikeDestination}
             currentPosition={startPoint}
             isTracking={tracking}
             elapsedSeconds={elapsedSeconds}
             onStartTracking={() => {
               // Show the cinematic HikePreStartModal before actually starting
+              setActiveHikeDestination(selectedDestination);
               setShowHikeInfo(false);
               setShowHikePreStart(true);
             }}
             onStopTracking={() => {
+              // Save hike with photos to Mountains Conquered
+              const saveHikeToConquered = async () => {
+                try {
+                  const photos = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                  const dist = trackPath?.length > 1 
+                    ? trackPath.reduce((acc, pos, i) => {
+                      if (i === 0) return 0;
+                      return acc + haversine(trackPath[i-1], pos);
+                    }, 0)
+                    : 0;
+                  
+                  await base44.entities.Hike.create({
+                    trail_name: activeHikeDestination?.name || 'Mountain Expedition',
+                    mountain: activeHikeDestination?.name || 'Philippine Peak',
+                    date: new Date().toISOString().slice(0, 10),
+                    duration_minutes: Math.max(1, Math.round(elapsedSeconds / 60)),
+                    distance_km: parseFloat(dist.toFixed(2)),
+                    steps: Math.round(dist * 1330),
+                    calories: Math.round((Math.round(dist * 1330) / 50)), // simplified calorie calc
+                    elevation_gain_m: activeHikeDestination?.elevation || 811,
+                    difficulty: activeHikeDestination?.difficulty || 'moderate',
+                    status: 'completed',
+                    notes: `Conquered ${activeHikeDestination?.name || 'peak'} via TrekQuest Live GPS Navigation.`,
+                    photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80'],
+                  });
+                  
+                  // Clear saved photos
+                  localStorage.removeItem('trekquest_active_hike_photos');
+                } catch (err) {
+                  console.warn('Failed to save hike:', err);
+                }
+              };
+              
+              saveHikeToConquered();
               setTracking(false);
               setActiveHikeDestination(null);
-              setLocationToast('⏹️ Hike Tracking Stopped');
+              setTrackPath([]);
+              setElapsedSeconds(0);
+              localStorage.removeItem('trekquest_is_tracking_hike');
+              localStorage.removeItem('trekquest_hike_track');
+              localStorage.removeItem('trekquest_hike_elapsed_seconds');
+              localStorage.removeItem('trekquest_active_hike_destination');
+              setLocationToast('⏹️ Hike saved to Mountains Conquered!');
               setTimeout(() => setLocationToast(''), 3000);
             }}
             onRecenterRoute={() => {
@@ -1361,7 +1696,41 @@ export default function MapPage() {
               setTimeout(() => setLocationToast(''), 2000);
             }}
             onClose={() => setShowHikeInfo(false)}
+            onBack={() => {
+              setShowHikeInfo(false);
+              setShowUpcomingHikesModal(true);
+            }}
           />
+        )}
+
+        {/* ── MINI TRACKING INDICATOR (shown when card is closed but tracking is active) ── */}
+        {!showHikeInfo && tracking && activeHikeDestination && (
+          <div className="absolute bottom-24 right-4 z-[1400] bg-slate-950/80 backdrop-blur-xl border border-emerald-500/30 rounded-2xl p-3 shadow-2xl text-white min-w-[140px] animate-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Hiking</span>
+            </div>
+            <div className="text-center mb-2">
+              <span className="text-[8px] text-slate-400 block">Duration</span>
+              <span className="font-mono font-bold text-amber-400 text-lg">
+                {(() => {
+                  const h = Math.floor(elapsedSeconds / 3600);
+                  const m = Math.floor((elapsedSeconds % 3600) / 60);
+                  const s = elapsedSeconds % 60;
+                  return `${h > 0 ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                })()}
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setShowHikeInfo(true);
+                setSelectedDestination(activeHikeDestination);
+              }}
+              className="w-full py-1.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-[10px] font-bold transition"
+            >
+              View Details
+            </button>
+          </div>
         )}
 
         {/* 4. Bottom Weather & Plan a Route Drawer (Shown when hike info card is closed) */}
@@ -1386,6 +1755,61 @@ export default function MapPage() {
         <WeatherModal onClose={() => setShowWeatherModal(false)} />
       )}
 
+      {/* Notes/Journal Selection Modal */}
+      {showNotesModal && (
+        <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/20 text-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
+              <FileText size={32} />
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-bold text-amber-300">
+                Add Notes or Journal Entry?
+              </h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                Would you like to add quick notes for this hike, or create a full journal entry?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  // Navigate to Journal page with from=hike parameter
+                  window.location.href = '/journal?from=hike';
+                }}
+                className="flex-1 py-3 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold transition"
+              >
+                Journal Entry
+              </button>
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  const note = prompt('Add a quick note for this hike:');
+                  if (note) {
+                    try {
+                      const currentNotes = JSON.parse(localStorage.getItem('trekquest_hike_notes') || '[]');
+                      const updated = [...currentNotes, { note, timestamp: new Date().toISOString() }];
+                      localStorage.setItem('trekquest_hike_notes', JSON.stringify(updated));
+                      setLocationToast('📝 Note saved!');
+                      setTimeout(() => setLocationToast(''), 2000);
+                    } catch {}
+                  }
+                }}
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition"
+              >
+                Notes
+              </button>
+            </div>
+            <button
+              onClick={() => setShowNotesModal(false)}
+              className="w-full py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-sm font-bold transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Plan a Route Screen Modal */}
       {showPlanRouteModal && (
         <PlanRouteModal
@@ -1393,6 +1817,19 @@ export default function MapPage() {
           onStartRoute={handleSelectDestination}
         />
       )}
+
+      {/* ── UPCOMING HIKES & HIKE HISTORY MODAL ───────────────────────── */}
+      <UpcomingHikesModal
+        isOpen={showUpcomingHikesModal}
+        onClose={() => {
+          setShowUpcomingHikesModal(false);
+          setUpcomingHikeInitialId(null);
+        }}
+        onStartHike={handleStartHikeFromUpcoming}
+        onViewOnMap={handleViewRouteOnMapFromUpcoming}
+        onPlanNewRoute={() => setShowPlanRouteModal(true)}
+        initialSelectedId={upcomingHikeInitialId}
+      />
 
       {/* ── CINEMATIC HIKE PRE-START INFO SCREEN ──────────────────────── */}
       {showHikePreStart && selectedDestination && (
@@ -1755,11 +2192,11 @@ export default function MapPage() {
               <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
 
-            {/* 2. Your Routes */}
+            {/* 2. Upcoming Hikes & Saved Routes */}
             <button
               onClick={() => {
                 setSidebarOpen(false);
-                setShowSavedRoutes(true);
+                setShowUpcomingHikesModal(true);
               }}
               className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
             >
@@ -1767,7 +2204,10 @@ export default function MapPage() {
                 <div className="w-10 h-10 rounded-xl bg-[#182a20] text-emerald-400 flex items-center justify-center shrink-0">
                   <Navigation size={20} />
                 </div>
-                <span className="font-bold text-sm">Your Routes</span>
+                <div>
+                  <span className="font-bold text-sm block">Upcoming Hikes & History</span>
+                  <span className="text-[10px] text-slate-500">Planned routes, details & start</span>
+                </div>
               </div>
               <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
@@ -1829,35 +2269,10 @@ export default function MapPage() {
                 <div className="w-10 h-10 rounded-xl bg-[#182a20] text-cyan-400 flex items-center justify-center shrink-0">
                   <UserRound size={20} />
                 </div>
-                <span className="font-bold text-sm">My Profile</span>
-              </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
-            </button>
-
-            {/* 6. Mountains Conquered */}
-            <button
-              onClick={() => { setSidebarOpen(false); navigate('/mountain-tracker'); }}
-              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-stone-300 flex items-center justify-center shrink-0">
-                  <Mountain size={20} />
+                <div>
+                  <span className="font-bold text-sm block">My Profile</span>
+                  <span className="text-[10px] text-slate-500">Emergency card, conquered peaks & hike info</span>
                 </div>
-                <span className="font-bold text-sm">Mountains Conquered</span>
-              </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
-            </button>
-
-            {/* 7. Emergency Info Card */}
-            <button
-              onClick={() => { setSidebarOpen(false); navigate('/emergency'); }}
-              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-red-500 flex items-center justify-center shrink-0">
-                  <AlertCircle size={20} />
-                </div>
-                <span className="font-bold text-sm">Emergency Info Card</span>
               </div>
               <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
