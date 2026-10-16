@@ -14,8 +14,12 @@ export default function Landing() {
       {/* Top Bar with brand icon */}
       <div className="relative z-10 flex items-center justify-between pt-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-md flex items-center justify-center text-emerald-400 shadow-xl">
-            <Mountain size={22} />
+          <div className="w-10 h-10 rounded-2xl bg-white border border-white/20 backdrop-blur-md flex items-center justify-center shadow-xl overflow-hidden">
+            <img 
+              src="/logo-source.jpg" 
+              alt="TrekQuest" 
+              className="w-full h-full object-contain p-1"
+            />
           </div>
           <span className="font-extrabold text-lg tracking-wider text-white">TrekQuest</span>
         </div>
@@ -31,9 +35,12 @@ export default function Landing() {
         {/* Visual Brand Crest */}
         <div className="relative mx-auto w-32 h-32 flex items-center justify-center">
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-emerald-500/20 via-teal-500/30 to-[#f05c48]/25 blur-xl animate-pulse" />
-          <div className="relative w-28 h-28 rounded-full bg-gradient-to-b from-[#183925] to-[#0d2215] border-2 border-emerald-400/40 shadow-2xl flex flex-col items-center justify-center backdrop-blur-md">
-            <Mountain size={44} className="text-white drop-shadow-md" />
-            <div className="w-8 h-1 bg-[#f05c48] rounded-full mt-1" />
+          <div className="relative w-28 h-28 rounded-full bg-white border-2 border-emerald-400/40 shadow-2xl flex items-center justify-center backdrop-blur-md overflow-hidden">
+            <img 
+              src="/logo-source.jpg" 
+              alt="TrekQuest Logo" 
+              className="w-full h-full object-contain p-2"
+            />
           </div>
         </div>
 
