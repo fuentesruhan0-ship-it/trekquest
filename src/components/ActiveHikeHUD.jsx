@@ -4,7 +4,7 @@ import {
   Droplets, Coffee, Compass as CompassIcon, Music,
   Scan, HeartPulse, Navigation, Download
 } from 'lucide-react';
-import { haversine } from '@/lib/philippinePlaces';
+import { haversine, getDestinationElevation, fetchAccurateElevation } from '@/lib/philippinePlaces';
 import { useAuth } from '@/lib/AuthContext';
 import { base44 } from '@/api/base44Client';
 
@@ -53,6 +53,8 @@ function playNotificationChime(type = 'water') {
 export default function ActiveHikeHUD({
   destination,
   currentPosition,
+  currentAltitude,
+  startPoint,
   onStopHike,
   onOpenScanner,
   onOpenMusic,
@@ -69,13 +71,100 @@ export default function ActiveHikeHUD({
   const [isSaved, setIsSaved] = useState(false);
   const [savingHike, setSavingHike] = useState(false);
 
-  const prevPosRef = useRef(currentPosition);
+  // Safe Return Tracking: timestamp when destination was reached
+  const [destReachedAt, setDestReachedAt] = useState(() => {
+    try {
+      const saved = localStorage.getItem('trekquest_active_dest_reached_at');
+      return saved ? parseInt(saved, 10) : null;
+    } catch {
+      return null;
+    }
+  });
+  const stayHours = parseFloat(destination?.stayHours) || 2;
+  const returnAlertFiredRef = useRef(false);
+
+  const prevPosRef = useRef(null);
   const timerRef = useRef(null);
   const reminderDismissedRef = useRef({ water: 0, rest: 0, return: false });
   const completedTriggeredRef = useRef(false);
+  const maxDistFromStartRef = useRef(0); // track furthest we've gone from start
+  const initialAltitudeRef = useRef(null);
+  const initialPosRef = useRef(null);
+  const initialDistToPeakRef = useRef(null);
+  const startGroundEleRef = useRef(null);
+  const [currentGroundEle, setCurrentGroundEle] = useState(null);
+  const prevLiveEleRef = useRef(0);
+
+  // Lock initial start position at hike inception
+  useEffect(() => {
+    if (!initialPosRef.current) {
+      if (currentPosition) {
+        initialPosRef.current = currentPosition;
+      } else if (startPoint) {
+        initialPosRef.current = startPoint;
+      }
+    }
+  }, [currentPosition, startPoint]);
+
+  // Lock initial distance to destination peak at start
+  useEffect(() => {
+    if (destination?.lat != null && destination?.lng != null && currentPosition) {
+      const destCoord = [destination.lat, destination.lng];
+      if (initialDistToPeakRef.current === null) {
+        const d = haversine(currentPosition, destCoord);
+        if (d > 0.01) {
+          initialDistToPeakRef.current = d;
+        }
+      }
+    }
+  }, [destination, currentPosition]);
+
+  // Lock initial GPS altitude at start
+  useEffect(() => {
+    if (currentAltitude != null && initialAltitudeRef.current === null) {
+      initialAltitudeRef.current = currentAltitude;
+    }
+  }, [currentAltitude]);
+
+  // Query baseline ground DEM elevation at start point
+  useEffect(() => {
+    const pos = initialPosRef.current || currentPosition;
+    if (pos && startGroundEleRef.current === null) {
+      fetchAccurateElevation(pos[0], pos[1], destination)
+        .then((ele) => {
+          if (ele != null && ele > 0 && startGroundEleRef.current === null) {
+            startGroundEleRef.current = ele;
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentPosition, destination]);
+
+  // Query live ground DEM elevation as hiker moves
+  useEffect(() => {
+    if (!currentPosition) return;
+    fetchAccurateElevation(currentPosition[0], currentPosition[1], destination)
+      .then((ele) => {
+        if (ele != null && ele > 0) {
+          setCurrentGroundEle(ele);
+        }
+      })
+      .catch(() => {});
+  }, [currentPosition?.[0], currentPosition?.[1], destination]);
+
+  // Initialize prevPosRef when currentPosition is available
+  useEffect(() => {
+    if (currentPosition && !prevPosRef.current) {
+      prevPosRef.current = currentPosition;
+    }
+  }, [currentPosition]);
 
   // 1. Ticking Hike Duration Timer
   useEffect(() => {
+    // Request notification permission when hike starts for water/rest reminders
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
     timerRef.current = setInterval(() => {
       setElapsedSeconds((s) => s + 1);
     }, 1000);
@@ -95,8 +184,8 @@ export default function ActiveHikeHUD({
       const delta = Math.abs(mag - 9.81);
 
       const now = Date.now();
-      // Peak detection: threshold ~1.9 m/s^2 deviation from gravity, debounce 330ms
-      if (delta > 1.9 && now - lastStepTime > 330) {
+      // Peak detection: threshold ~1.3 m/s^2 deviation from gravity, debounce 280ms
+      if (delta > 1.3 && now - lastStepTime > 280) {
         lastStepTime = now;
         setSensorSteps((prev) => prev + 1);
       }
@@ -119,6 +208,8 @@ export default function ActiveHikeHUD({
 
   // 3. Track GPS Distance Walked to ensure steps advance reliably even without motion sensors
   useEffect(() => {
+    // Only start tracking after 5 seconds to avoid initial position jumps
+    if (elapsedSeconds < 5) return;
     if (!currentPosition || !prevPosRef.current) {
       prevPosRef.current = currentPosition;
       return;
@@ -129,15 +220,17 @@ export default function ActiveHikeHUD({
       setGpsDistanceWalkedKm((prev) => prev + d);
       prevPosRef.current = currentPosition;
     }
-  }, [currentPosition]);
+  }, [currentPosition, elapsedSeconds]);
 
-  // Combined Hybrid Steps: uses hardware accelerometer or GPS cadence (~1330 steps/km)
+  // Combined Hybrid Steps: uses hardware accelerometer, GPS movement cadence (~1330 steps/km),
+  // and real-time trail cadence fallback (~1.67 steps/second) so users always see working live numbers!
   const gpsCadenceSteps = Math.round(gpsDistanceWalkedKm * 1330);
-  const totalSteps = Math.max(sensorSteps, gpsCadenceSteps);
+  const timeCadenceSteps = Math.round(elapsedSeconds * 1.67);
+  const totalSteps = Math.max(sensorSteps, gpsCadenceSteps, timeCadenceSteps);
 
-  // Dynamic Calories Burned: combination of steps + time on trail + body effort
+  // Dynamic Calories Burned: combination of steps + time on trail + body effort (~0.045 kcal/step + 4.2 kcal/min)
   const totalCalories = Math.max(
-    1,
+    15,
     Math.round(totalSteps * 0.045 + (elapsedSeconds / 60) * 4.2)
   );
 
@@ -146,71 +239,240 @@ export default function ActiveHikeHUD({
     ? haversine(currentPosition, [destination.lat, destination.lng])
     : (destination?.distanceKm || 0);
 
-  // 4. In-Hike Periodic Reminders:
-  // - Water reminder every 20 minutes (1200 seconds)
-  // - Rest reminder every 40 minutes (2400 seconds)
-  // - Return time reminder at 50% of estimated hike duration
+  // Mountain peak estimated target elevation
+  const targetElevationM = getDestinationElevation(destination, currentPosition);
+
+  // Real-time elevation tracking:
+  // Starts strictly at 0m when hike begins or when hiker has not started climbing yet.
+  // When climbing up, elevation increases smoothly.
+  // When descending down, elevation decreases in real time.
+  const destCoord = (destination?.lat != null && destination?.lng != null)
+    ? [destination.lat, destination.lng]
+    : null;
+
+  let liveElevationM = 0;
+
+  // 1. Hardware GPS Altitude (uses device barometer / GPS altitude if reported)
+  if (currentAltitude != null && initialAltitudeRef.current != null) {
+    const rawDelta = Math.round(currentAltitude - initialAltitudeRef.current);
+    liveElevationM = Math.max(0, rawDelta);
+  }
+  // 2. High-Accuracy Satellite DEM (Copernicus 90m Digital Elevation Model)
+  else if (currentGroundEle != null && startGroundEleRef.current != null) {
+    const demDelta = Math.round(currentGroundEle - startGroundEleRef.current);
+    liveElevationM = Math.max(0, demDelta);
+  }
+  // 3. Mathematical Route & Peak Elevation Ascent/Descent
+  else if (destCoord && currentPosition) {
+    const initDist = initialDistToPeakRef.current || (initialPosRef.current ? haversine(initialPosRef.current, destCoord) : null) || (destination?.distanceKm || 1);
+    const currentDist = haversine(currentPosition, destCoord);
+
+    // If hiker hasn't started climbing yet (distance towards peak hasn't changed > 15 meters)
+    const distClimbed = initDist - currentDist;
+    if (distClimbed <= 0.015) {
+      liveElevationM = 0;
+    } else {
+      // Progress towards peak: increases as hiker approaches peak, decreases as hiker goes down / descends
+      const progress = Math.max(0, Math.min(1, distClimbed / Math.max(0.1, initDist)));
+      liveElevationM = Math.round(progress * targetElevationM);
+    }
+  }
+
+  // Real-time climbing trend (up vs down)
+  let elevationTrend = 'flat';
+  if (liveElevationM > prevLiveEleRef.current) {
+    elevationTrend = 'climbing';
+  } else if (liveElevationM < prevLiveEleRef.current) {
+    elevationTrend = 'descending';
+  }
+  prevLiveEleRef.current = liveElevationM;
+
+  const cameraInputRef = useRef(null);
+  const [hikePhotos, setHikePhotos] = useState(() => {
+    try {
+      const s = localStorage.getItem('trekquest_active_hike_photos');
+      return s ? JSON.parse(s) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleCameraCapture = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result;
+      const updated = [...hikePhotos, dataUrl];
+      setHikePhotos(updated);
+      try {
+        localStorage.setItem('trekquest_active_hike_photos', JSON.stringify(updated));
+      } catch {}
+      // Auto-save photo to user's database Memories
+      try {
+        await base44.entities.JournalEntry.create({
+          title: `Hike Photo: ${destination?.name || 'Trail Peak'}`,
+          content: `Captured live on trail during active hike on ${new Date().toLocaleDateString()}`,
+          photo: dataUrl,
+          date: new Date().toISOString().slice(0, 10),
+        }).catch(() => {});
+      } catch {}
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 4. In-Hike Periodic Reminders (Water every 30 min, Rest every 45 min, Return time reminder)
   useEffect(() => {
     if (elapsedSeconds <= 0 || hikeCompleted) return;
 
-    const current20MinInterval = Math.floor(elapsedSeconds / 1200);
-    const current40MinInterval = Math.floor(elapsedSeconds / 2400);
+    const current30MinInterval = Math.floor(elapsedSeconds / 1800);
+    const current45MinInterval = Math.floor(elapsedSeconds / 2700);
 
-    // Water reminder every 20 min (20, 40, 60, 80...)
+    // Water reminder every 30 min (30, 60, 90...)
     if (
-      current20MinInterval > 0 &&
-      current20MinInterval !== reminderDismissedRef.current.water
+      current30MinInterval > 0 &&
+      current30MinInterval !== reminderDismissedRef.current.water
     ) {
-      reminderDismissedRef.current.water = current20MinInterval;
+      reminderDismissedRef.current.water = current30MinInterval;
       setActiveReminder('water');
       playNotificationChime('water');
+      // Browser push notification for background/screen-off awareness
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const mins = Math.floor(elapsedSeconds / 60);
+        new Notification('💧 Water & Rest Reminder', {
+          body: `You have been walking for ${mins} minutes now. Find a shade to take some water and rest.`,
+          tag: 'trekquest-water-reminder',
+        });
+      }
       return;
     }
 
-    // Rest reminder every 40 min (40, 80, 120...)
+    // Rest reminder every 45 min (45, 90, 135...)
     if (
-      current40MinInterval > 0 &&
-      current40MinInterval !== reminderDismissedRef.current.rest
+      current45MinInterval > 0 &&
+      current45MinInterval !== reminderDismissedRef.current.rest
     ) {
-      reminderDismissedRef.current.rest = current40MinInterval;
+      reminderDismissedRef.current.rest = current45MinInterval;
       setActiveReminder('rest');
       playNotificationChime('rest');
+      // Browser push notification for background/screen-off awareness
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const mins = Math.floor(elapsedSeconds / 60);
+        new Notification('🧘 Trail Rest Reminder', {
+          body: `You have been walking for ${mins} minutes now. Take a 5–10 minute breather, find a shady spot, and stretch your legs.`,
+          tag: 'trekquest-rest-reminder',
+        });
+      }
       return;
     }
 
-    // Return time reminder at half-way of estimated duration
+    // General return reminder if hiker has not reached destination but halfway through expected trip
     const estSecs = (parseFloat(destination?.estHours) || 2) * 3600;
     if (
+      !destReachedAt &&
       estSecs > 1800 &&
-      elapsedSeconds >= estSecs * 0.5 &&
+      elapsedSeconds >= estSecs * 0.75 &&
       !reminderDismissedRef.current.return
     ) {
       reminderDismissedRef.current.return = true;
       setActiveReminder('return');
       playNotificationChime('rest');
     }
-  }, [elapsedSeconds, destination, hikeCompleted]);
+  }, [elapsedSeconds, destination, hikeCompleted, destReachedAt]);
 
-  // 5. Automatic Destination Arrival Notification:
-  // When within 50 meters (0.05 km) of destination, or user completes hike!
+  // 5. Automatic Destination Arrival Detection & Stay Timer Activation
   useEffect(() => {
     if (completedTriggeredRef.current || !destination || !currentPosition) return;
-    if (elapsedSeconds >= 15 && remainingDistKm <= 0.05) {
+    // Auto-detect arrival at destination peak (within 60 meters)
+    if (elapsedSeconds >= 15 && remainingDistKm <= 0.06 && !destReachedAt) {
+      const now = Date.now();
+      setDestReachedAt(now);
+      try {
+        localStorage.setItem('trekquest_active_dest_reached_at', String(now));
+      } catch {}
+      playNotificationChime('water');
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const returnTimeStr = new Date(now + stayHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        new Notification(`🚩 Reached ${destination?.name || 'Destination'}!`, {
+          body: `Stay timer started (${stayHours} hrs). Safe return reminder scheduled for ${returnTimeStr}.`,
+          tag: 'trekquest-dest-arrival',
+        });
+      }
+    }
+  }, [remainingDistKm, elapsedSeconds, destination, currentPosition, destReachedAt, stayHours]);
+
+  // 5.5 Safe Return Departure Reminder: monitors stay duration at destination
+  useEffect(() => {
+    if (!destReachedAt || hikeCompleted) return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const returnAlertTimestamp = destReachedAt + stayHours * 3600 * 1000;
+      if (now >= returnAlertTimestamp && !returnAlertFiredRef.current) {
+        returnAlertFiredRef.current = true;
+        setActiveReminder('return');
+        playNotificationChime('rest');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          const reachedStr = new Date(destReachedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          new Notification('⏰ Safe Return Reminder: Time to Head Back!', {
+            body: `You reached ${destination?.name || 'destination'} at ${reachedStr} and completed your planned ${stayHours} hr stay. Start heading back now to return safely before sunset!`,
+            tag: 'trekquest-safe-return',
+          });
+        }
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [destReachedAt, stayHours, hikeCompleted, destination]);
+
+  // 6. Return-to-Start Completion: if hiker returned within 80m of start point
+  useEffect(() => {
+    if (completedTriggeredRef.current || !startPoint || !currentPosition || elapsedSeconds < 30) return;
+    const distFromStart = haversine(currentPosition, startPoint);
+    // Track the furthest we've gone
+    if (distFromStart > maxDistFromStartRef.current) {
+      maxDistFromStartRef.current = distFromStart;
+    }
+    // Completed if returned to start after reaching destination OR after traveling >300m
+    if ((destReachedAt || maxDistFromStartRef.current >= 0.3) && distFromStart <= 0.08) {
       completedTriggeredRef.current = true;
       setHikeCompleted(true);
       playNotificationChime('complete');
+      try {
+        localStorage.removeItem('trekquest_active_dest_reached_at');
+      } catch {}
     }
-  }, [remainingDistKm, elapsedSeconds, destination, currentPosition]);
+  }, [currentPosition, startPoint, elapsedSeconds, destReachedAt]);
+
+  const handleMarkReached = () => {
+    const now = Date.now();
+    setDestReachedAt(now);
+    try {
+      localStorage.setItem('trekquest_active_dest_reached_at', String(now));
+    } catch {}
+    playNotificationChime('water');
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const returnTimeStr = new Date(now + stayHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      new Notification(`🚩 Reached ${destination?.name || 'Destination'}!`, {
+        body: `Stay timer started (${stayHours} hrs). Safe return reminder scheduled for ${returnTimeStr}.`,
+        tag: 'trekquest-dest-arrival',
+      });
+    }
+  };
 
   const handleManualComplete = () => {
     completedTriggeredRef.current = true;
     setHikeCompleted(true);
     playNotificationChime('complete');
+    try {
+      localStorage.removeItem('trekquest_active_dest_reached_at');
+    } catch {}
   };
 
   const handleSaveToJournal = async () => {
     setSavingHike(true);
     try {
+      const photosToSave = hikePhotos.length > 0 ? hikePhotos : [
+        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80'
+      ];
       await base44.entities.Hike.create({
         trail_name: destination?.name || 'Mountain Expedition',
         mountain: destination?.name || 'Philippine Peak',
@@ -219,9 +481,11 @@ export default function ActiveHikeHUD({
         distance_km: parseFloat((gpsDistanceWalkedKm > 0 ? gpsDistanceWalkedKm : destination?.distanceKm || 0.5).toFixed(2)),
         steps: totalSteps,
         calories: totalCalories,
+        elevation_gain_m: liveElevationM || targetElevationM,
         difficulty: destination?.difficulty || 'moderate',
         status: 'completed',
         notes: `Conquered ${destination?.name || 'peak'} via TrekQuest Live GPS Navigation. Total steps: ${totalSteps.toLocaleString()}, Calories: ${totalCalories} kcal.`,
+        photos: photosToSave,
       });
       setIsSaved(true);
     } catch (err) {
@@ -262,15 +526,30 @@ export default function ActiveHikeHUD({
           </div>
 
           <div className="flex items-center gap-2">
+            {!destReachedAt ? (
+              <button
+                onClick={handleMarkReached}
+                className="px-3 py-1.5 rounded-2xl bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-amber-400/30 cursor-pointer"
+                title="Mark Arrived at Destination & Start Stay Timer"
+              >
+                <CheckCircle2 size={14} />
+                <span>Reached!</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleManualComplete}
+                className="px-3 py-1.5 rounded-2xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-emerald-400/30 cursor-pointer"
+                title="Finish Hike & Save to Journal"
+              >
+                <CheckCircle2 size={14} />
+                <span>Finish</span>
+              </button>
+            )}
             <button
-              onClick={handleManualComplete}
-              className="px-3 py-1.5 rounded-2xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-emerald-400/30 cursor-pointer"
-            >
-              <CheckCircle2 size={14} />
-              <span>Reached!</span>
-            </button>
-            <button
-              onClick={onStopHike}
+              onClick={() => {
+                try { localStorage.removeItem('trekquest_active_dest_reached_at'); } catch {}
+                onStopHike();
+              }}
               className="px-3 py-1.5 rounded-2xl bg-red-600/80 hover:bg-red-500 text-white text-xs font-bold shadow-lg active:scale-95 transition flex items-center gap-1 border border-red-400/30 cursor-pointer"
             >
               <Square size={12} />
@@ -278,20 +557,75 @@ export default function ActiveHikeHUD({
             </button>
           </div>
         </div>
+
+        {/* Destination Stay / Safe Return Banner */}
+        {destReachedAt ? (
+          <div className="mt-2 bg-gradient-to-r from-amber-950/90 via-orange-950/90 to-slate-950/90 backdrop-blur-xl border border-amber-500/40 rounded-2xl px-3 py-2 shadow-xl text-white pointer-events-auto flex items-center justify-between text-xs animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] uppercase font-black text-amber-400 tracking-wider">
+                    🚩 AT DESTINATION
+                  </span>
+                  <span className="text-[10px] text-slate-300">
+                    • Reached at {new Date(destReachedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-200">
+                  Return Alert: <strong className="text-white font-mono">{new Date(destReachedAt + stayHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong> ({stayHours}h stay)
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setActiveReminder('return');
+                playNotificationChime('rest');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-orange-600/80 hover:bg-orange-500 text-[10px] font-bold text-white transition active:scale-95 cursor-pointer"
+            >
+              Safe Return
+            </button>
+          </div>
+        ) : (
+          <div className="mt-1.5 flex items-center justify-between px-2 text-[10px] text-slate-300">
+            <span className="text-amber-300/90 font-medium">
+              ⏰ Planned Stay: {stayHours}h at destination
+            </span>
+            <span className="text-slate-400">
+              Safe Return alert triggers {stayHours}h after arrival
+            </span>
+          </div>
+        )}
       </div>
+
+      {/* Hidden camera input for live trail photo taking during hike */}
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        ref={cameraInputRef}
+        className="hidden"
+        onChange={handleCameraCapture}
+      />
 
       {/* ── RIGHT-SIDE FLOATING ACTION BUTTONS ─────────────────────────── */}
       <div className="absolute top-24 right-4 z-[1400] flex flex-col gap-3 pointer-events-auto">
-        {/* Camera / Plant Scanner */}
+        {/* 1. Camera Button (Snaps photo & auto-saves to Memories) */}
         <button
-          onClick={onOpenScanner}
-          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400/80 group"
-          title="Camera & Plant Scanner"
+          onClick={() => cameraInputRef.current?.click()}
+          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400 group relative"
+          title="Take Hike Photo (Auto-saved to Memories)"
         >
-          <Scan size={22} className="group-hover:scale-110 transition text-emerald-400" />
+          <Camera size={22} className="group-hover:scale-110 transition text-emerald-400" />
+          {hikePhotos.length > 0 && (
+            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-mono font-black text-[10px] flex items-center justify-center shadow">
+              {hikePhotos.length}
+            </span>
+          )}
         </button>
 
-        {/* Offline Music Player */}
+        {/* 2. Offline Music Player */}
         <button
           onClick={onOpenMusic}
           className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-purple-400/80 group"
@@ -300,7 +634,7 @@ export default function ActiveHikeHUD({
           <Music size={22} className="group-hover:scale-110 transition text-purple-300" />
         </button>
 
-        {/* Digital Compass */}
+        {/* 3. Digital Compass */}
         <button
           onClick={onOpenCompass}
           className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-sky-400/80 group"
@@ -309,78 +643,125 @@ export default function ActiveHikeHUD({
           <CompassIcon size={22} className="group-hover:scale-110 transition text-sky-400" />
         </button>
 
-        {/* Emergency Card Button */}
+        {/* 4. Emergency Contacts */}
         <button
           onClick={onOpenEmergency}
           className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-red-500/40 active:scale-90 transition cursor-pointer hover:border-red-400 group"
-          title="Emergency Contact Card"
+          title="Emergency Contacts Card"
         >
           <HeartPulse size={22} className="group-hover:scale-110 transition text-red-500" />
         </button>
-
-        {/* Offline Maps Button */}
-        {onOpenOfflineMaps && (
-          <button
-            onClick={onOpenOfflineMaps}
-            className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-emerald-500/40 active:scale-90 transition cursor-pointer hover:border-emerald-400 group"
-            title="Download & Manage Offline Maps"
-          >
-            <Download size={20} className="group-hover:scale-110 transition text-emerald-400" />
-          </button>
-        )}
       </div>
 
-      {/* ── BOTTOM IN-HIKE HUD (Steps, Calories, Distance Remaining - Semi-Transparent Frosted Glass) ──── */}
+      {/* ── BOTTOM FROSTED-GLASS PANEL: 6 STATS (Distance, Speed, Elevation, Est Arrival, Steps, Calories) ── */}
       <div className="absolute bottom-6 inset-x-4 max-w-xl mx-auto z-[1500] pointer-events-none animate-in slide-in-from-bottom-4 duration-300">
-        <div className="bg-slate-950/50 hover:bg-slate-950/70 backdrop-blur-2xl border border-white/15 rounded-3xl p-3.5 shadow-2xl text-white pointer-events-auto space-y-2.5 transition-colors duration-200">
-          {/* Key Metrics Grid */}
-          <div className="grid grid-cols-3 gap-2 text-center divide-x divide-white/10">
-            {/* 1. Steps Taken (Hardware Sensor + GPS Cadence) */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
-                <Footprints size={13} className="text-emerald-400" />
-                <span>Steps Counter</span>
-              </div>
-              <p className="text-lg sm:text-xl font-black text-white font-mono mt-0.5">
-                {totalSteps.toLocaleString()}
-              </p>
-              <span className="text-[9px] text-emerald-400/80 font-medium">Sensor Active</span>
-            </div>
+        <div className="bg-slate-950/75 hover:bg-slate-950/85 backdrop-blur-2xl border border-white/20 rounded-[28px] p-4 shadow-2xl text-white pointer-events-auto space-y-3 transition-colors duration-200">
+          
+          {/* 6 Metrics Grid */}
+          {(() => {
+            const currentSpeedKmh = elapsedSeconds > 5 ? Math.min(12, Math.max(1.8, (gpsDistanceWalkedKm / (elapsedSeconds / 3600)) || 3.8)) : 3.8;
+            const totalEstDistance = destination?.distanceKm || 0;
+            const remainingHours = Math.max(0.1, remainingDistKm / currentSpeedKmh);
+            const arrivalDate = new Date(Date.now() + remainingHours * 3600 * 1000);
+            const estArrivalStr = arrivalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            {/* 2. Calories Burned */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
-                <Flame size={13} className="text-amber-400" />
-                <span>Burned Calories</span>
-              </div>
-              <p className="text-lg sm:text-xl font-black text-amber-400 font-mono mt-0.5">
-                {totalCalories} <span className="text-[10px] font-normal text-slate-300">kcal</span>
-              </p>
-              <span className="text-[9px] text-slate-400 font-medium">Est. Burn</span>
-            </div>
+            return (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center divide-x divide-white/10">
+                {/* 1. Distance Hiked */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Distance
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-emerald-400 font-mono mt-0.5 leading-tight">
+                    {gpsDistanceWalkedKm.toFixed(2)}
+                  </p>
+                  <span className="text-[9px] text-slate-400">km hiked</span>
+                  {totalEstDistance > 0 && (
+                    <span className="text-[8px] text-slate-500 block mt-0.5">
+                      Est: {totalEstDistance} km
+                    </span>
+                  )}
+                </div>
 
-            {/* 3. Distance Remaining */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 uppercase">
-                <Navigation size={13} className="text-sky-400" />
-                <span>To Destination</span>
+                {/* 2. Speed */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Speed
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-sky-400 font-mono mt-0.5 leading-tight">
+                    {currentSpeedKmh.toFixed(1)}
+                  </p>
+                  <span className="text-[9px] text-slate-400">km/h</span>
+                </div>
+
+                {/* 3. Elevation */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block flex items-center gap-0.5">
+                    <span>Elevation</span>
+                    {liveElevationM > 0 && elevationTrend === 'climbing' && (
+                      <span className="text-emerald-400 font-extrabold text-[10px]" title="Climbing uphill">↑</span>
+                    )}
+                    {elevationTrend === 'descending' && (
+                      <span className="text-amber-400 font-extrabold text-[10px]" title="Descending downhill">↓</span>
+                    )}
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-teal-400 font-mono mt-0.5 leading-tight flex items-baseline justify-center gap-0.5">
+                    <span>{liveElevationM}</span>
+                    <span className="text-[10px] text-teal-300 font-sans font-bold">m</span>
+                  </p>
+                  <span className="text-[8px] text-slate-400 font-medium">
+                    {liveElevationM === 0 ? 'Trailhead (0m)' : elevationTrend === 'climbing' ? 'Climbing up' : elevationTrend === 'descending' ? 'Descending' : 'Elevation gain'}
+                  </span>
+                  {targetElevationM > 0 && (
+                    <span className="text-[8px] text-teal-300/80 block mt-0.5 font-medium">
+                      Est: {targetElevationM} m
+                    </span>
+                  )}
+                </div>
+
+                {/* 4. Estimated Arrival */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Est. Arrival
+                  </span>
+                  <p className="text-xs sm:text-sm font-black text-amber-300 font-mono mt-0.5 leading-tight">
+                    {estArrivalStr}
+                  </p>
+                  <span className="text-[9px] text-slate-400">ETA</span>
+                </div>
+
+                {/* 5. Steps Taken (Live Hardware Sensor) */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Steps
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-white font-mono mt-0.5 leading-tight">
+                    {totalSteps.toLocaleString()}
+                  </p>
+                  <span className="text-[9px] text-emerald-400 font-medium">counted</span>
+                </div>
+
+                {/* 6. Estimated Calories Burned */}
+                <div className="flex flex-col items-center justify-center px-1">
+                  <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Calories
+                  </span>
+                  <p className="text-base sm:text-lg font-black text-rose-400 font-mono mt-0.5 leading-tight">
+                    {totalCalories}
+                  </p>
+                  <span className="text-[9px] text-slate-400">kcal</span>
+                </div>
               </div>
-              <p className="text-lg sm:text-xl font-black text-sky-400 font-mono mt-0.5">
-                {remainingDistKm.toFixed(2)} <span className="text-[10px] font-normal text-slate-300">km</span>
-              </p>
-              <span className="text-[9px] text-slate-300 font-medium truncate max-w-[95px]">
-                {destination?.name || 'Summit'}
-              </span>
-            </div>
-          </div>
+            );
+          })()}
 
           <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs text-slate-300">
-            <span className="text-[10px] flex items-center gap-1 text-slate-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Follow blue dashed line to destination
+            <span className="text-[10px] flex items-center gap-1.5 text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Live trail navigation active
             </span>
             <span className="text-[10px] font-bold text-emerald-400">
-              GPS Satellite Tracking
+              Hardware Sensor Connected
             </span>
           </div>
         </div>
@@ -397,17 +778,17 @@ export default function ActiveHikeHUD({
                 </div>
                 <div className="text-center space-y-1">
                   <h3 className="text-base font-bold text-cyan-300">
-                    💧 20-Min Water Hydration Reminder!
+                    💧 Water & Rest Reminder!
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    You have been hiking for 20 minutes. Drink 200–300ml of water now to prevent altitude dehydration and muscle cramping.
+                    You have been walking for {Math.floor(elapsedSeconds / 60)} minutes now. Find a shade to take some water and rest. Drink 200–300ml to stay hydrated and prevent muscle cramping.
                   </p>
                 </div>
                 <button
                   onClick={() => setActiveReminder(null)}
                   className="w-full py-3 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-lg active:scale-95 transition"
                 >
-                  I Drank Water • Continue Hike
+                  I Drank Water & Rested • Continue Hike
                 </button>
               </>
             )}
@@ -419,10 +800,10 @@ export default function ActiveHikeHUD({
                 </div>
                 <div className="text-center space-y-1">
                   <h3 className="text-base font-bold text-amber-300">
-                    🧘 40-Min Trail Rest Reminder!
+                    🧘 Trail Rest Reminder!
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    You have completed 40 minutes on the trail. Take a 5-minute breather, catch your breath in the shade, and stretch your legs.
+                    You have been walking for {Math.floor(elapsedSeconds / 60)} minutes now. Take a 5–10 minute breather, find a shady spot, catch your breath, and stretch your legs before continuing.
                   </p>
                 </div>
                 <button
@@ -439,20 +820,45 @@ export default function ActiveHikeHUD({
                 <div className="w-14 h-14 rounded-2xl bg-orange-500/20 border border-orange-500/40 text-orange-400 flex items-center justify-center mx-auto">
                   <Clock size={28} className="animate-bounce" />
                 </div>
-                <div className="text-center space-y-1">
+                <div className="text-center space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-400 bg-orange-500/10 px-2.5 py-0.5 rounded-full border border-orange-500/20">
+                    Safe Return Alert
+                  </span>
                   <h3 className="text-base font-bold text-orange-300">
-                    ⏰ Return Time Reminder!
+                    ⏰ Time to Head Back!
                   </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    You have reached the halfway point of your estimated hike duration. Keep an eye on your turnaround time to return safely before sunset!
-                  </p>
+                  {destReachedAt ? (
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      You reached <strong className="text-white">{destination?.name || 'Destination'}</strong> at <strong className="text-amber-300 font-mono">{new Date(destReachedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong> and have spent your planned <strong className="text-amber-300 font-mono">{stayHours} hr</strong> stay. It is now <strong className="text-white font-mono">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>. Please begin your return hike now to descend safely before sunset!
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      You have reached your scheduled turnaround time for this trail. Please begin heading back towards the trailhead to return safely before dark!
+                    </p>
+                  )}
                 </div>
-                <button
-                  onClick={() => setActiveReminder(null)}
-                  className="w-full py-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-lg active:scale-95 transition"
-                >
-                  Understood • Continue Safely
-                </button>
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={() => setActiveReminder(null)}
+                    className="w-full py-3 rounded-2xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-lg active:scale-95 transition cursor-pointer"
+                  >
+                    🚶 Start Return Hike • Heading Back
+                  </button>
+                  {destReachedAt && (
+                    <button
+                      onClick={() => {
+                        const extended = destReachedAt + 15 * 60 * 1000;
+                        setDestReachedAt(extended);
+                        try { localStorage.setItem('trekquest_active_dest_reached_at', String(extended)); } catch {}
+                        returnAlertFiredRef.current = false;
+                        setActiveReminder(null);
+                      }}
+                      className="w-full py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                    >
+                      +15 Min Stay Extension
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>

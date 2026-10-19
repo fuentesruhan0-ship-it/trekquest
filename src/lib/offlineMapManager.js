@@ -134,8 +134,8 @@ export function tile2lat(y, z) {
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
 }
 
-// Generate tile coordinates for a bounding box
-export function getTileCoordinates(bounds, minZoom = 13, maxZoom = 15) {
+// Generate tile coordinates for a bounding box (multi-zoom pyramid for seamless zoom in/out)
+export function getTileCoordinates(bounds, minZoom = 11, maxZoom = 16) {
   const { south, west, north, east } = bounds;
   const tiles = [];
 
@@ -155,7 +155,7 @@ export function getTileCoordinates(bounds, minZoom = 13, maxZoom = 15) {
 }
 
 // Generate full URLs for all desired layers
-export function generateTileUrls(bounds, minZoom = 13, maxZoom = 15, layerTypes = ['satellite', 'topo']) {
+export function generateTileUrls(bounds, minZoom = 11, maxZoom = 16, layerTypes = ['satellite', 'topo']) {
   const coords = getTileCoordinates(bounds, minZoom, maxZoom);
   const urls = [];
 

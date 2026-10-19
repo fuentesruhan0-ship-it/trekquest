@@ -13,12 +13,16 @@ export default function Layout() {
     );
   }
 
+  // Remove bottom navigation bar from menu screens: My Profile, Survival Manual, First Aid Guide, Backpacking
+  const hideBottomNavRoutes = ['/profile', '/survival', '/first-aid', '/backpacking'];
+  const hideBottomNav = hideBottomNavRoutes.includes(location.pathname);
+
   return (
     <div className="min-h-[100dvh] max-w-md mx-auto bg-background relative flex flex-col shadow-2xl">
-      <main className="flex-1 overflow-y-auto no-scrollbar pb-20">
+      <main className={`flex-1 overflow-y-auto no-scrollbar ${hideBottomNav ? 'pb-4' : 'pb-20'}`}>
         <Outlet />
       </main>
-      <BottomNav />
+      {!hideBottomNav && <BottomNav />}
     </div>
   );
 }

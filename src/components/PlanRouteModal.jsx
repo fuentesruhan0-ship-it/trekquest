@@ -4,9 +4,9 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   ChevronLeft, Crosshair, MapPin, ChevronDown, Navigation, Search, X,
-  Compass, Flame, Footprints, Clock, Check
+  Compass, Flame, Footprints, Clock, Check, Calendar, AlertTriangle
 } from 'lucide-react';
-import { philippinePlaces, searchBroadPlaces, haversine } from '@/lib/philippinePlaces';
+import { philippinePlaces, searchBroadPlaces, haversine, getDestinationElevation, fetchAccurateElevation } from '@/lib/philippinePlaces';
 
 // Custom Map Markers with high contrast frosted glass aesthetic
 const startPinIcon = L.divIcon({
@@ -38,7 +38,16 @@ function MapPreviewClickHandler({ onMapClick }) {
   return null;
 }
 
-export default function PlanRouteModal({ onClose, onStartRoute }) {
+export default function PlanRouteModal({ onClose, onStartRoute, onSaveRoute }) {
+  // Map style: DEFAULTS TO TOPO per Section 6 (elevation contours, trail names, place labels)
+  const [modalMapStyle, setModalMapStyle] = useState('topo');
+
+  // Hike Date field (defaults to today, editable to future date e.g. Oct 25, 2026)
+  const [hikeDate, setHikeDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Estimated hours to stay at destination (default 2 hours for safe return calculation)
+  const [stayHours, setStayHours] = useState(2);
+
   // Active tapping mode: 'start' or 'dest'
   const [pickMode, setPickMode] = useState('dest'); // default to picking destination, or user can toggle start
 
@@ -98,13 +107,14 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
   const handleMapClick = (coords) => {
     if (pickMode === 'start') {
       setStartCoords(coords);
-      setStartName(`Custom Start (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`);
+      setStartName(`Map Point (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`);
       // Auto-switch to destination picking next for smooth flow
       if (!destCoords) setPickMode('dest');
     } else {
       setDestCoords(coords);
       const dist = haversine(startCoords, coords);
       const est = Math.max(0.4, (dist / 3.5)).toFixed(1);
+      const elev = getDestinationElevation(null, coords);
       setSelectedDestination({
         name: `Custom Destination (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`,
         region: 'Custom Pinned Map Location',
@@ -113,7 +123,37 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
         lng: coords[1],
         distanceKm: dist.toFixed(2),
         estHours: est,
+        elevation: elev,
+        elevation_gain_m: elev,
       });
+
+      // Refine with satellite Digital Elevation Model (DEM)
+      fetchAccurateElevation(coords[0], coords[1]).then((accurateEle) => {
+        setSelectedDestination((prev) => (prev ? { ...prev, elevation: accurateEle, elevation_gain_m: accurateEle } : null));
+      }).catch(() => {});
+    }
+  };
+
+  const handleSelectCurrentLocation = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = [pos.coords.latitude, pos.coords.longitude];
+          setStartCoords(coords);
+          setStartName('Current Location (Live GPS)');
+          try {
+            localStorage.setItem('trekquest_current_coords', JSON.stringify(coords));
+          } catch {}
+        },
+        () => {
+          setStartCoords(defaultGps);
+          setStartName('Current Location (Stored)');
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    } else {
+      setStartCoords(defaultGps);
+      setStartName('Current Location (GPS)');
     }
   };
 
@@ -132,20 +172,92 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
   const handleSelectDestOption = (opt) => {
     const dist = haversine(startCoords, [opt.lat, opt.lng]);
     const est = Math.max(0.4, (dist / 3.5)).toFixed(1);
+    const elev = getDestinationElevation(opt, [opt.lat, opt.lng]);
     const fullDest = {
       ...opt,
       distanceKm: dist.toFixed(2),
       estHours: est,
+      elevation: elev,
+      elevation_gain_m: elev,
     };
     setSelectedDestination(fullDest);
     setDestCoords([opt.lat, opt.lng]);
     setDestDropdownOpen(false);
+
+    // Refine with live satellite Digital Elevation Model (DEM)
+    fetchAccurateElevation(opt.lat, opt.lng, opt).then((accurateEle) => {
+      setSelectedDestination((prev) => (prev ? { ...prev, elevation: accurateEle, elevation_gain_m: accurateEle } : null));
+    }).catch(() => {});
   };
 
-  const handleStartNavigation = () => {
-    if (onStartRoute && selectedDestination) {
-      // Pass BOTH destination and user-chosen starting point!
-      onStartRoute(selectedDestination, startCoords);
+  const handleSaveToUpcoming = () => {
+    if (!selectedDestination || !destCoords) return;
+
+    // Check if user has filled emergency card with weight
+    let emergencyInfo = null;
+    try {
+      const local = localStorage.getItem('trekquest_emergency_info');
+      if (local) {
+        emergencyInfo = JSON.parse(local);
+      }
+    } catch {}
+    
+    if (!emergencyInfo || !emergencyInfo.weight) {
+      alert('Please fill in your Emergency Card with your weight first before planning a route. This is important for safety calculations.');
+      return;
+    }
+
+    const parsedStayHours = parseFloat(stayHours) || 2;
+    const elev = getDestinationElevation(selectedDestination, destCoords);
+    const plannedHike = {
+      id: `hike_${Date.now()}`,
+      name: `${startName || 'Start'} → ${selectedDestination.name}`,
+      title: selectedDestination.name,
+      mountain: selectedDestination.name,
+      startName: startName || 'Starting Point',
+      startCoords: startCoords || defaultGps,
+      destName: selectedDestination.name,
+      destCoords: destCoords,
+      region: selectedDestination.region || 'Philippines',
+      type: selectedDestination.type || 'Location',
+      distanceKm: distKm.toFixed(2),
+      estHours: estHours,
+      stayHours: parsedStayHours,
+      estSteps: estSteps,
+      estCalories: estCalories,
+      elevation: elev,
+      elevation_gain_m: elev,
+      difficulty: selectedDestination.difficulty || 'Moderate',
+      date: hikeDate,
+      hikeDate: hikeDate,
+      createdAt: hikeDate || new Date().toISOString().slice(0, 10),
+      notes: `Planned via TrekQuest Custom Route Planner. Starting from ${startName}. Scheduled for ${hikeDate}. Planned stay: ${parsedStayHours}h.`,
+      status: 'upcoming',
+      userWeight: userWeight, // Save user weight for accurate calorie calculation
+    };
+
+    // Save to localStorage
+    try {
+      const raw = localStorage.getItem('trekquest_upcoming_hikes');
+      const list = raw ? JSON.parse(raw) : [];
+      const updated = [plannedHike, ...list.filter((h) => h.id !== plannedHike.id)];
+      localStorage.setItem('trekquest_upcoming_hikes', JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Failed to save to trekquest_upcoming_hikes:', err);
+    }
+
+    const fullDestWithStay = {
+      ...selectedDestination,
+      stayHours: parsedStayHours,
+      date: hikeDate,
+      hikeDate: hikeDate,
+    };
+
+    if (onSaveRoute) {
+      onSaveRoute(plannedHike);
+    } else if (onStartRoute) {
+      // Pass destination, startCoords, and false for autoStart, plus plannedHike
+      onStartRoute(fullDestWithStay, startCoords, false, plannedHike);
     }
     onClose();
   };
@@ -155,7 +267,33 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
     : (selectedDestination?.distanceKm ? parseFloat(selectedDestination.distanceKm) : 0);
   const estHours = Math.max(0.4, distKm / 3.5).toFixed(1);
   const estSteps = Math.round(distKm * 1330);
-  const estCalories = Math.round(estSteps * 0.045 + (parseFloat(estHours) * 60) * 4.2);
+
+  // Get user weight from emergency card for accurate calorie calculation
+  const getStepsPerCalorie = (weight) => {
+    if (!weight) return 50; // default middle range
+    if (weight >= 10 && weight <= 20) return 65; // average of 50-80
+    if (weight >= 21 && weight <= 30) return 50; // average of 40-60
+    if (weight >= 31 && weight <= 40) return 42.5; // average of 35-50
+    if (weight >= 41 && weight <= 50) return 34.5; // average of 29-40
+    if (weight >= 51 && weight <= 60) return 30; // average of 25-35
+    if (weight >= 61 && weight <= 70) return 26; // average of 22-30
+    if (weight >= 71 && weight <= 80) return 23.5; // average of 20-27
+    if (weight >= 81 && weight <= 90) return 21.5; // average of 18-25
+    if (weight >= 91 && weight <= 100) return 19.5; // average of 16-23
+    return 50; // default fallback
+  };
+
+  let userWeight = null;
+  try {
+    const emergencyData = localStorage.getItem('trekquest_emergency_info');
+    if (emergencyData) {
+      const parsed = JSON.parse(emergencyData);
+      userWeight = parsed.weight ? parseFloat(parsed.weight) : null;
+    }
+  } catch {}
+
+  const stepsPerCalorie = getStepsPerCalorie(userWeight);
+  const estCalories = Math.round(estSteps / stepsPerCalorie);
 
   return (
     <div className="fixed inset-0 z-[3200] bg-black/70 backdrop-blur-xl overflow-y-auto no-scrollbar flex flex-col text-white font-sans select-none animate-in fade-in duration-200">
@@ -175,10 +313,10 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
               <h1 className="text-lg sm:text-xl font-black text-white tracking-wide flex items-center gap-2">
                 <span>Plan a Route</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Custom Planner
+                  Ahead of Time
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400">Choose your start & destination freely</p>
+              <p className="text-[11px] text-slate-400">Choose start & destination anywhere on map</p>
             </div>
           </div>
 
@@ -190,6 +328,46 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
           </button>
         </div>
 
+        {/* Map Style Selector (Defaults to Topo per Section 6) */}
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] font-bold text-slate-300">Map Style:</span>
+          <div className="flex items-center gap-1 bg-black/60 p-1 rounded-2xl border border-white/15 backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => setModalMapStyle('topo')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                modalMapStyle === 'topo'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              🏔️ Topo (Default)
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMapStyle('streets')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                modalMapStyle === 'streets'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              🗺️ Outdoor
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMapStyle('satellite')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                modalMapStyle === 'satellite'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              🛰️ Satellite
+            </button>
+          </div>
+        </div>
+
         {/* Map Preview Container with Connecting Line */}
         <div className="space-y-1.5">
           <div className="relative w-full h-56 sm:h-64 rounded-3xl overflow-hidden border border-white/20 shadow-2xl bg-slate-950/80 backdrop-blur-md">
@@ -199,11 +377,33 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
               zoomControl={false}
               className="w-full h-full"
             >
-              <TileLayer
-                attribution="Tiles &copy; Esri World Imagery"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                maxZoom={19}
-              />
+              {modalMapStyle === 'topo' && (
+                <TileLayer
+                  key="modal-topo"
+                  attribution="&copy; OpenTopoMap"
+                  url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                  maxNativeZoom={17}
+                  maxZoom={22}
+                />
+              )}
+              {modalMapStyle === 'streets' && (
+                <TileLayer
+                  key="modal-streets"
+                  attribution="&copy; OpenStreetMap"
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  maxNativeZoom={19}
+                  maxZoom={22}
+                />
+              )}
+              {modalMapStyle === 'satellite' && (
+                <TileLayer
+                  key="modal-satellite"
+                  attribution="Tiles &copy; Esri World Imagery"
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                  maxNativeZoom={18}
+                  maxZoom={22}
+                />
+              )}
               <MapPreviewClickHandler onMapClick={handleMapClick} />
               
               {/* User-selected starting point (Green Pin) */}
@@ -420,6 +620,94 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
           )}
         </div>
 
+        {/* ── 2.5 DATE & PLANNED STAY DURATION (Safe Return Configuration) ── */}
+        <div className="p-3.5 rounded-2xl bg-white/5 border border-white/15 backdrop-blur-md space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold text-amber-400 tracking-wider uppercase flex items-center gap-1.5">
+              <Calendar size={12} className="text-amber-400" />
+              HIKE DATE &amp; SAFE RETURN SCHEDULE
+            </span>
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+              Safe Return Active
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Hike Date Input */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-300 block mb-1 flex items-center gap-1">
+                <Calendar size={11} className="text-sky-400" />
+                Hike Date
+              </label>
+              <input
+                type="date"
+                value={hikeDate}
+                onChange={(e) => setHikeDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900/90 border border-white/20 text-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-400 transition"
+              />
+            </div>
+
+            {/* Estimated Stay Duration at Destination */}
+            <div>
+              <label className="text-[10px] font-bold text-slate-300 block mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Clock size={11} className="text-orange-400" />
+                  Estimated Stay at Destination (hours)
+                </span>
+                <span className="text-xs font-mono font-black text-amber-400">
+                  {stayHours ? `${stayHours}h` : '0h'}
+                </span>
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStayHours((prev) => Math.max(0.5, Math.round(((parseFloat(prev) || 0) - 0.5) * 10) / 10))}
+                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0"
+                  title="Decrease 30 mins"
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={stayHours}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0);
+                    setStayHours(val);
+                  }}
+                  placeholder="e.g. 2"
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-white/20 text-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-amber-400 text-center font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setStayHours((prev) => Math.round(((parseFloat(prev) || 0) + 0.5) * 10) / 10)}
+                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm flex items-center justify-center transition active:scale-95 cursor-pointer shrink-0"
+                  title="Increase 30 mins"
+                >
+                  +
+                </button>
+              </div>
+              <div className="flex gap-1 mt-1.5">
+                {[1, 2, 4, 8].map((hrs) => (
+                  <button
+                    key={hrs}
+                    type="button"
+                    onClick={() => setStayHours(hrs)}
+                    className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                      Number(stayHours) === hrs
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {hrs}h
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* ── 3. ESTIMATED METRICS & ACTION BUTTON ─────────────────────────── */}
         <div className="pt-2 mt-auto">
           {!selectedDestination ? (
@@ -428,6 +716,12 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
             </div>
           ) : (
             <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-200">
+              {/* Title for Estimated Metrics */}
+              <h3 className="text-xs font-extrabold text-slate-300 tracking-wider uppercase flex items-center gap-1.5">
+                <Navigation size={12} className="text-emerald-400" />
+                Estimated Hike Stats
+              </h3>
+
               {/* Frosted Glass Metrics Grid (Steps counter & Burned calories as requested) */}
               <div className="p-3.5 rounded-2xl bg-white/5 border border-white/15 backdrop-blur-xl shadow-xl grid grid-cols-4 gap-2 text-center divide-x divide-white/10">
                 <div>
@@ -467,13 +761,13 @@ export default function PlanRouteModal({ onClose, onStartRoute }) {
                 </div>
               </div>
 
-              {/* Start Hike Button */}
+              {/* Save to Upcoming Hikes Button */}
               <button
-                onClick={handleStartNavigation}
+                onClick={handleSaveToUpcoming}
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-xl shadow-emerald-950/60 transition cursor-pointer border border-white/20"
               >
-                <Navigation size={18} />
-                <span>Start Route from Chosen Starting Point →</span>
+                <Check size={18} />
+                <span>Save to Upcoming Hikes →</span>
               </button>
             </div>
           )}

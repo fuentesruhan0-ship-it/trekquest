@@ -1,16 +1,50 @@
-// Offline-first Local Storage Repository Adapter for Native/Standalone Execution
+// Offline-first Local Storage Repository Adapter with Strict User-Account Isolation
+const getCurrentUserEmail = () => {
+  try {
+    const session = JSON.parse(localStorage.getItem('trekquest_cached_session') || 'null');
+    if (session?.email) return session.email.toLowerCase().trim();
+    const cur = localStorage.getItem('trekquest_current_user_email');
+    if (cur) return cur.toLowerCase().trim();
+  } catch {}
+  return 'default';
+};
+
+const getScopedKey = (storageKey) => {
+  const email = getCurrentUserEmail();
+  const safeEmail = email.replace(/[^a-z0-9_]/gi, '_');
+  return `${storageKey}__${safeEmail}`;
+};
+
 const createLocalEntityStore = (storageKey, defaultItems = []) => {
   const getItems = () => {
     try {
-      const data = localStorage.getItem(storageKey);
-      if (!data) {
-        if (defaultItems.length > 0) {
-          localStorage.setItem(storageKey, JSON.stringify(defaultItems));
-          return [...defaultItems];
-        }
-        return [];
+      const scopedKey = getScopedKey(storageKey);
+      const data = localStorage.getItem(scopedKey);
+      if (data) {
+        return JSON.parse(data);
       }
-      return JSON.parse(data);
+
+      // Check if legacy un-scoped data exists for migration to demo/default user
+      const email = getCurrentUserEmail();
+      const isDemo = email === 'trail.master@trekquest.ph' || email === 'hiker@trekquest.app' || email === 'default';
+      const legacyData = localStorage.getItem(storageKey);
+
+      if (legacyData && isDemo) {
+        try {
+          const parsed = JSON.parse(legacyData);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localStorage.setItem(scopedKey, JSON.stringify(parsed));
+            return parsed;
+          }
+        } catch {}
+      }
+
+      if (isDemo && defaultItems.length > 0) {
+        localStorage.setItem(scopedKey, JSON.stringify(defaultItems));
+        return [...defaultItems];
+      }
+
+      return [];
     } catch (e) {
       console.warn(`Error reading ${storageKey}:`, e);
       return [];
@@ -19,7 +53,8 @@ const createLocalEntityStore = (storageKey, defaultItems = []) => {
 
   const saveItems = (items) => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(items));
+      const scopedKey = getScopedKey(storageKey);
+      localStorage.setItem(scopedKey, JSON.stringify(items));
     } catch (e) {
       console.warn(`Error saving ${storageKey}:`, e);
     }
@@ -45,9 +80,11 @@ const createLocalEntityStore = (storageKey, defaultItems = []) => {
 
     async create(data) {
       const items = getItems();
+      const email = getCurrentUserEmail();
       const newItem = {
         ...data,
         id: data.id || `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        user_email: email,
         created_at: new Date().toISOString(),
       };
       items.unshift(newItem);
@@ -57,10 +94,12 @@ const createLocalEntityStore = (storageKey, defaultItems = []) => {
 
     async bulkCreate(dataList) {
       const items = getItems();
+      const email = getCurrentUserEmail();
       const baseTs = Date.now();
       const newItems = dataList.map((data, idx) => ({
         ...data,
         id: data.id || `local_${baseTs}_${idx}_${Math.random().toString(36).substring(2, 9)}`,
+        user_email: email,
         created_at: new Date().toISOString(),
       }));
       items.push(...newItems);

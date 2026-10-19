@@ -109,9 +109,27 @@ export default function MusicMode({ onClose }) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    let rejectedCount = 0;
     const savedTracks = [];
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+
+      // Explicitly reject any video or picture/image file
+      const isVideoOrPicture =
+        file.type.startsWith('image/') ||
+        file.type.startsWith('video/') ||
+        /\.(mp4|mov|avi|mkv|webm|3gp|flv|wmv|m4v|jpg|jpeg|png|gif|webp|svg|bmp|heic|tif|tiff)$/i.test(file.name);
+
+      const isMp3OrAudio =
+        file.type.startsWith('audio/') ||
+        /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name);
+
+      if (isVideoOrPicture || !isMp3OrAudio) {
+        rejectedCount++;
+        continue;
+      }
+
       // EXACT original file name — the app will never rename or change this!
       const exactFileName = file.name;
       try {
@@ -130,8 +148,24 @@ export default function MusicMode({ onClose }) {
       setTracks((prev) => [...savedTracks, ...prev]);
       setCurrent(0);
       setPlaying(true);
-      setUploadToast(`Saved "${savedTracks[0].name}" permanently`);
-      setTimeout(() => setUploadToast(''), 3500);
+      if (rejectedCount > 0) {
+        setUploadToast({
+          message: `Saved ${savedTracks.length} MP3 track(s). Skipped ${rejectedCount} video/image file(s).`,
+          isError: false,
+        });
+      } else {
+        setUploadToast({
+          message: `Saved "${savedTracks[0].name}" permanently`,
+          isError: false,
+        });
+      }
+      setTimeout(() => setUploadToast(null), 3500);
+    } else if (rejectedCount > 0) {
+      setUploadToast({
+        message: 'Only MP3 audio files are supported. Videos and pictures cannot be imported.',
+        isError: true,
+      });
+      setTimeout(() => setUploadToast(null), 4000);
     }
 
     if (fileInputRef.current) {
@@ -225,7 +259,7 @@ export default function MusicMode({ onClose }) {
       <input
         ref={fileInputRef}
         type="file"
-        accept="audio/*"
+        accept=".mp3,audio/mpeg,audio/mp3"
         multiple
         className="hidden"
         onChange={handleFileUpload}
@@ -332,7 +366,7 @@ export default function MusicMode({ onClose }) {
           className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white active:scale-95 transition cursor-pointer"
         >
           <Upload size={16} className="text-purple-300" />
-          <span>Add Local Audio (Keeps File Name)</span>
+          <span>Import MP3 Audio (Keeps File Name)</span>
         </button>
       </div>
 
@@ -413,15 +447,19 @@ export default function MusicMode({ onClose }) {
             onClick={() => fileInputRef.current?.click()}
             className="w-full py-3 mt-4 rounded-xl bg-purple-600 hover:bg-purple-500 font-bold text-xs flex items-center justify-center gap-2 active:scale-95 transition"
           >
-            <Plus size={16} /> Add Songs From Phone
+            <Plus size={16} /> Add MP3 Songs From Phone
           </button>
         </div>
       )}
 
       {/* Upload Toast */}
       {uploadToast && (
-        <div className="absolute top-16 inset-x-0 mx-auto w-fit z-50 px-4 py-2 rounded-full bg-emerald-950/90 text-emerald-200 border border-emerald-500/50 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-in fade-in">
-          <span>{uploadToast}</span>
+        <div className={`absolute top-16 inset-x-0 mx-auto w-fit max-w-[90%] z-50 px-4 py-2 rounded-full border shadow-2xl backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-in fade-in ${
+          (typeof uploadToast === 'object' && uploadToast?.isError)
+            ? 'bg-rose-950/90 text-rose-200 border-rose-500/50'
+            : 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50'
+        }`}>
+          <span>{typeof uploadToast === 'object' ? uploadToast.message : uploadToast}</span>
         </div>
       )}
     </div>

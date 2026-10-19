@@ -1,45 +1,44 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { base44 } from '@/api/base44Client';
+import UpcomingHikesModal, { getSavedUpcomingHikes } from '@/components/UpcomingHikesModal';
+import PlanRouteModal from '@/components/PlanRouteModal';
 import {
-  UserRound, Map, BookOpen, Mountain, HeartPulse, Leaf, Backpack,
-  CloudSun, Compass, Droplets, Flame, Music, Armchair, Clock, LogOut,
-  ChevronRight, Camera, Edit3, X, Check, Sparkles, Navigation,
-  Smartphone, Download, AlertCircle, Heart, Phone, Award, Plus,
-  ShieldCheck, ShieldAlert
+  UserRound, Mountain, HeartPulse, LogOut,
+  Camera, Edit3, X, Check, Sparkles, Navigation,
+  AlertCircle, Phone, Plus, Calendar, Clock,
+  Footprints, Flame, ChevronRight, Image as ImageIcon,
+  CheckCircle2, Compass, Shield, ArrowLeft
 } from 'lucide-react';
 
-const links = [
-  { label: 'Your Saved Routes', sub: 'Saved hiking routes & trails', icon: Navigation, to: '/map?drawer=routes', color: 'bg-emerald-600', tag: 'Routes' },
-  { label: 'Travel Journal', sub: 'Hike notes & photo memories', icon: BookOpen, to: '/journal', color: 'bg-teal-600' },
-  { label: 'Plant Scan History', sub: 'Botanical dictionary & scans', icon: Leaf, to: '/plant-scanner', color: 'bg-green-600' },
-  { label: 'Backpacking List', sub: 'Trail gear checklist', icon: Backpack, to: '/backpacking', color: 'bg-amber-600' },
-  { label: 'Activity Tracker', sub: 'Calories & daily steps', icon: Flame, to: '/activity', color: 'bg-rose-600' },
-  { label: 'Weather Forecast', sub: 'Local area & cyclone alerts', icon: CloudSun, to: '/weather', color: 'bg-sky-600' },
-  { label: 'Compass & Direction', sub: 'Magnetic bearing & GPS', icon: Compass, to: '/compass', color: 'bg-slate-700' },
-  { label: 'Offline Music Player', sub: 'Full-screen trail playlist', icon: Music, to: '/music', color: 'bg-purple-600' },
-  { label: 'Water Reminder', sub: 'Hydration schedule', icon: Droplets, to: '/water-reminder', color: 'bg-cyan-600' },
-  { label: 'Rest Reminder', sub: 'Smart hiking intervals', icon: Armchair, to: '/rest-reminder', color: 'bg-indigo-600' },
-  { label: 'Safe Return Timer', sub: 'Emergency overdue alert', icon: Clock, to: '/safe-return', color: 'bg-amber-700' },
+const defaultMountainImages = [
+  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1486870591958-9b9d0d1dda99?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1511497584788-87676104235f?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=800&q=80',
 ];
 
 export default function Profile() {
   const { user, logout, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Profile Edit
+  // 1. Profile Info & Edit State
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(user?.full_name || '');
   const [editPhoto, setEditPhoto] = useState(user?.photo_url || '');
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Emergency Info Card State (Directly on Profile)
+  // 2. Emergency Card State
   const [emergencyInfo, setEmergencyInfo] = useState(null);
   const [showEmergencyEditModal, setShowEmergencyEditModal] = useState(false);
   const [emergencyForm, setEmergencyForm] = useState({
     full_name: '',
+    weight: '',
     blood_type: 'O+',
     allergies: 'None',
     medical_conditions: 'None',
@@ -51,13 +50,54 @@ export default function Profile() {
   });
   const [isSavingEmergency, setIsSavingEmergency] = useState(false);
 
-  // Mountains Conquered State (Directly on Profile)
+  // 3. Mountains Conquered State & Gallery
   const [conqueredHikes, setConqueredHikes] = useState([]);
   const [loadingHikes, setLoadingHikes] = useState(true);
+  const [selectedDetailHike, setSelectedDetailHike] = useState(null);
+  const [fullscreenPhoto, setFullscreenPhoto] = useState(null);
+  const [showLogSummitModal, setShowLogSummitModal] = useState(false);
+  const [summitForm, setSummitForm] = useState({
+    mountain: '',
+    elevation_gain_m: '',
+    distance_km: '',
+    difficulty: 'moderate',
+    notes: '',
+    photo: '',
+  });
+  const [isSavingSummit, setIsSavingSummit] = useState(false);
+  const detailPhotoInputRef = useRef(null);
+  const summitPhotoInputRef = useRef(null);
 
-  // Fetch Emergency Info & Mountains Conquered on mount
+  // Modals for Planned Routes & Upcoming Hikes
+  const [showUpcomingHikesModal, setShowUpcomingHikesModal] = useState(false);
+  const [showPlanRouteModal, setShowPlanRouteModal] = useState(false);
+  const [upcomingInitialId, setUpcomingInitialId] = useState(null);
+
+  // Reload conquered hikes when navigating to this page
   useEffect(() => {
-    // 1. Emergency Info
+    const loadConqueredHikes = async () => {
+      try {
+        setLoadingHikes(true);
+        const data = await base44.entities.Hike.list('-date', 50);
+        if (data && data.length > 0) {
+          setConqueredHikes(data);
+        } else {
+          setConqueredHikes([]);
+        }
+      } catch (err) {
+        console.warn('Failed to load conquered hikes:', err);
+        setConqueredHikes([]);
+      } finally {
+        setLoadingHikes(false);
+      }
+    };
+
+    loadConqueredHikes();
+  }, [location.pathname]);
+
+  // Load data on mount
+  useEffect(() => {
+    // Load Emergency Card
     (async () => {
       try {
         const items = await base44.entities.EmergencyInfo.list();
@@ -65,7 +105,6 @@ export default function Profile() {
           setEmergencyInfo(items[0]);
           setEmergencyForm(items[0]);
         } else {
-          // Check localStorage fallback
           const local = localStorage.getItem('trekquest_emergency_info');
           if (local) {
             const parsed = JSON.parse(local);
@@ -74,6 +113,7 @@ export default function Profile() {
           } else {
             const init = {
               full_name: user?.full_name || 'Hiker',
+              weight: '',
               blood_type: 'O+',
               allergies: 'None known',
               medical_conditions: 'None',
@@ -91,29 +131,9 @@ export default function Profile() {
         console.warn('Failed to load emergency info:', err);
       }
     })();
-
-    // 2. Mountains Conquered
-    (async () => {
-      try {
-        const data = await base44.entities.Hike.list('-date', 15);
-        if (data && data.length > 0) {
-          setConqueredHikes(data);
-        } else {
-          // Check local storage or provide popular sample summits
-          const defaultSummits = [
-            { id: 'summit_1', mountain: 'Mt. Pulag Summit', elevation_gain_m: 2928, distance_km: 16.5, date: '2026-09-15', difficulty: 'moderate' },
-            { id: 'summit_2', mountain: 'Mt. Batulao Peak', elevation_gain_m: 811, distance_km: 10.2, date: '2026-09-02', difficulty: 'moderate' },
-          ];
-          setConqueredHikes(defaultSummits);
-        }
-      } catch (err) {
-        console.warn('Failed to load conquered hikes:', err);
-      } finally {
-        setLoadingHikes(false);
-      }
-    })();
   }, [user]);
 
+  // Save Profile edits
   const openEdit = () => {
     setEditName(user?.full_name || '');
     setEditPhoto(user?.photo_url || '');
@@ -125,28 +145,28 @@ export default function Profile() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setEditPhoto(ev.target?.result);
+      setEditPhoto(ev.target.result);
     };
     reader.readAsDataURL(file);
   };
 
   const handleSaveProfile = async () => {
+    if (!editName.trim()) return;
     setIsSaving(true);
     try {
-      if (updateProfile) {
-        await updateProfile({
-          full_name: editName.trim() || 'Hiker',
-          photo_url: editPhoto,
-        });
-      }
+      await updateProfile({
+        full_name: editName.trim(),
+        photo_url: editPhoto,
+      });
       setShowEditModal(false);
     } catch (err) {
-      console.error('Failed to save profile:', err);
+      console.warn('Failed to update profile:', err);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Save Emergency Card edits
   const handleSaveEmergency = async () => {
     setIsSavingEmergency(true);
     try {
@@ -159,12 +179,67 @@ export default function Profile() {
         setEmergencyInfo(created);
       }
       setShowEmergencyEditModal(false);
-    } catch (err) {
+    } catch {
       setEmergencyInfo(emergencyForm);
       setShowEmergencyEditModal(false);
     } finally {
       setIsSavingEmergency(false);
     }
+  };
+
+  // Log a new conquered summit
+  const handleSaveSummit = async () => {
+    if (!summitForm.mountain.trim()) return;
+    setIsSavingSummit(true);
+    try {
+      const defaultImg = summitForm.photo || defaultMountainImages[conqueredHikes.length % defaultMountainImages.length];
+      const newSummit = {
+        mountain: summitForm.mountain.trim(),
+        trail_name: `${summitForm.mountain.trim()} Trail`,
+        elevation_gain_m: parseFloat(summitForm.elevation_gain_m) || 1200,
+        distance_km: parseFloat(summitForm.distance_km) || 8.0,
+        difficulty: summitForm.difficulty || 'moderate',
+        date: new Date().toISOString().slice(0, 10),
+        duration_minutes: 240,
+        steps: Math.round((parseFloat(summitForm.distance_km) || 8.0) * 1330),
+        calories: Math.round((parseFloat(summitForm.distance_km) || 8.0) * 65 + 180),
+        notes: summitForm.notes || 'Successfully conquered the mountain summit!',
+        journal_entry: `Hiked ${summitForm.mountain.trim()} with great trail conditions and stunning mountain views.`,
+        photos: [defaultImg],
+        status: 'completed',
+      };
+      const created = await base44.entities.Hike.create(newSummit);
+      setConqueredHikes((prev) => [created, ...prev]);
+      setShowLogSummitModal(false);
+      setSummitForm({ mountain: '', elevation_gain_m: '', distance_km: '', difficulty: 'moderate', notes: '', photo: '' });
+    } catch (err) {
+      console.warn('Error saving summit:', err);
+    } finally {
+      setIsSavingSummit(false);
+    }
+  };
+
+  // Add a photo to a hike's Memories
+  const handleAddMemoryPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedDetailHike) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result;
+      const currentPhotos = selectedDetailHike.photos || [];
+      const updatedPhotos = [...currentPhotos, dataUrl];
+      const updatedHike = { ...selectedDetailHike, photos: updatedPhotos };
+      setSelectedDetailHike(updatedHike);
+      setConqueredHikes((prev) =>
+        prev.map((h) => (h.id === selectedDetailHike.id ? updatedHike : h))
+      );
+      try {
+        if (selectedDetailHike.id && !selectedDetailHike.id.startsWith('summit_')) {
+          await base44.entities.Hike.update(selectedDetailHike.id, { photos: updatedPhotos });
+        }
+      } catch {}
+    };
+    reader.readAsDataURL(file);
   };
 
   const totalElevationGained = conqueredHikes.reduce(
@@ -177,30 +252,46 @@ export default function Profile() {
   );
 
   return (
-    <div className="min-h-full pb-24 w-full max-w-full overflow-x-hidden bg-slate-950 text-white font-sans">
-      
-      {/* ── PROFILE HEADER (Frosted Glass with Emerald Accents) ────────── */}
-      <div className="relative px-5 pt-10 pb-8 rounded-b-[36px] bg-gradient-to-br from-emerald-950/70 via-slate-900/80 to-slate-950 backdrop-blur-2xl border-b border-white/10 shadow-2xl overflow-hidden">
+    <div className="min-h-full pb-8 w-full max-w-full overflow-x-hidden bg-[#0a160f] text-white font-sans select-none">
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          1. PROFILE INFO (TOP) — avatar, name, email, "Edit profile" (picture is editable)
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="relative px-5 pt-8 pb-7 rounded-b-[36px] bg-gradient-to-br from-[#122b1c] via-[#0d2216] to-[#0a160f] backdrop-blur-2xl border-b border-white/10 shadow-2xl overflow-hidden">
         {/* Glow ambient spots */}
         <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
         <div className="absolute -left-10 bottom-0 w-36 h-36 rounded-full bg-teal-500/10 blur-2xl pointer-events-none" />
 
+        {/* Back Navigation Bar */}
+        <div className="relative z-10 flex items-center justify-between pb-3 mb-3.5 border-b border-white/10">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white active:scale-95 transition cursor-pointer"
+          >
+            <ArrowLeft size={16} />
+            <span>Back to Map</span>
+          </button>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Hiker Account
+          </span>
+        </div>
+
         <div className="relative z-10 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3.5 min-w-0">
-            {/* Tappable Profile Photo */}
+            {/* Tappable Profile Photo (Editable) */}
             <div
               onClick={openEdit}
               className="relative w-18 h-18 rounded-full cursor-pointer group active:scale-95 transition"
-              title="Change profile picture"
+              title="Edit Profile Picture"
             >
-              <div className="w-16 h-16 rounded-full bg-slate-800/80 backdrop-blur-md flex items-center justify-center overflow-hidden border-2 border-emerald-400/80 shadow-xl">
+              <div className="w-16 h-16 rounded-full bg-[#183925] backdrop-blur-md flex items-center justify-center overflow-hidden border-2 border-emerald-400/80 shadow-xl">
                 {user?.photo_url ? (
                   <img src={user.photo_url} alt={user.full_name} className="w-full h-full object-cover" />
                 ) : (
                   <UserRound size={34} className="text-emerald-300" />
                 )}
               </div>
-              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-slate-900 group-hover:scale-110 transition font-bold">
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#f05c48] text-white flex items-center justify-center shadow-lg border-2 border-slate-900 group-hover:scale-110 transition font-bold">
                 <Camera size={11} />
               </div>
             </div>
@@ -208,7 +299,7 @@ export default function Profile() {
             {/* Profile Info */}
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-lg font-black text-white truncate">{user?.full_name || 'Hiker'}</p>
+                <p className="text-lg font-black text-white truncate">{user?.full_name || 'TrekQuest Hiker'}</p>
                 <button
                   onClick={openEdit}
                   className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80 active:scale-90 transition cursor-pointer"
@@ -217,30 +308,89 @@ export default function Profile() {
                   <Edit3 size={13} />
                 </button>
               </div>
-              <p className="text-xs text-slate-400 truncate">{user?.email || 'Active Hiker Profile'}</p>
-              <div className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-[10px] font-extrabold text-emerald-300 backdrop-blur-md">
-                <Sparkles size={10} /> Mountain Trail Master
+              <p className="text-xs text-emerald-200/80 truncate">{user?.email || 'hiker@trekquest.app'}</p>
+              
+              {/* Role Badge */}
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${
+                  user?.role === 'admin'
+                    ? 'bg-purple-950/80 border-purple-400 text-purple-200'
+                    : user?.role === 'guide'
+                    ? 'bg-amber-950/80 border-amber-400 text-amber-200'
+                    : 'bg-emerald-950/80 border-emerald-400 text-emerald-200'
+                }`}>
+                  {user?.badge || '🏔️ Trail Hiker'}
+                </span>
               </div>
             </div>
           </div>
 
+          {/* Explicit "Edit profile" Button */}
           <button
             onClick={openEdit}
-            className="px-3.5 py-1.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold active:scale-95 transition shrink-0 cursor-pointer backdrop-blur-md"
+            className="px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold active:scale-95 transition shrink-0 cursor-pointer backdrop-blur-md shadow-md"
           >
-            Edit
+            Edit profile
           </button>
         </div>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-4 max-w-lg mx-auto">
+      <div className="p-4 sm:p-5 space-y-5 max-w-lg mx-auto">
         
-        {/* ── 1. EMERGENCY INFO CARD (FEATURED DIRECTLY ON PROFILE) ─────── */}
+        {/* ═══════════════════════════════════════════════════════════════════════
+            ACCOUNT ROLE & DATA ISOLATION CARD
+            ═══════════════════════════════════════════════════════════════════════ */}
+        <div className="rounded-3xl p-4 bg-gradient-to-br from-white/10 via-white/5 to-transparent backdrop-blur-2xl border border-white/15 shadow-xl text-white space-y-2.5">
+          <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold ${
+                user?.role === 'admin' ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40' :
+                user?.role === 'guide' ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40' :
+                'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+              }`}>
+                {user?.role === 'admin' ? <Shield size={15} /> : user?.role === 'guide' ? <Compass size={15} /> : <Mountain size={15} />}
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                  Account Status & Role
+                </span>
+                <p className="text-xs font-black text-white">
+                  {user?.roleTitle || 'Trail Hiker'}
+                </p>
+              </div>
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[10px] font-black border ${
+              user?.role === 'admin' ? 'bg-purple-950/70 border-purple-400/60 text-purple-200' :
+              user?.role === 'guide' ? 'bg-amber-950/70 border-amber-400/60 text-amber-200' :
+              'bg-emerald-950/70 border-emerald-400/60 text-emerald-200'
+            }`}>
+              {user?.badge || '🏔️ Hiker'}
+            </div>
+          </div>
+          <div className="text-[11px] text-slate-300 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Registered Email:</span>
+              <span className="font-mono text-emerald-300 font-bold">{user?.email || 'hiker@trekquest.app'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Mountains Conquered:</span>
+              <span className="font-bold text-white bg-white/10 px-2 py-0.5 rounded-lg">{conqueredHikes.length} summits recorded</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Data Isolation:</span>
+              <span className="text-[10px] text-emerald-400 font-medium">Strict Account Isolated</span>
+            </div>
+          </div>
+        </div>
+        
+        {/* ═══════════════════════════════════════════════════════════════════════
+            2. EMERGENCY CARD (contacts, allergies, medical info)
+            ═══════════════════════════════════════════════════════════════════════ */}
         <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
               <HeartPulse size={14} className="text-rose-400" />
-              <span>Emergency Medical Info Card</span>
+              <span>Emergency Card</span>
             </h3>
             <button
               onClick={() => setShowEmergencyEditModal(true)}
@@ -251,10 +401,10 @@ export default function Profile() {
           </div>
 
           {/* Frosted Glass Red-Tinted Emergency Card */}
-          <div className="relative rounded-3xl p-4 sm:p-5 bg-gradient-to-br from-red-950/60 via-slate-900/70 to-slate-950/80 backdrop-blur-2xl border border-red-500/30 shadow-2xl text-white overflow-hidden space-y-3">
+          <div className="relative rounded-3xl p-4 sm:p-5 bg-gradient-to-br from-red-950/60 via-slate-900/80 to-[#12080a] backdrop-blur-2xl border border-red-500/30 shadow-2xl text-white overflow-hidden space-y-3">
             <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center font-black">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center font-black shadow-md">
                   <AlertCircle size={18} />
                 </div>
                 <div>
@@ -267,14 +417,24 @@ export default function Profile() {
                 </div>
               </div>
 
-              {/* Blood Type Badge */}
-              <div className="px-3 py-1 rounded-2xl bg-red-600/30 border border-red-400/50 text-white font-mono font-black text-xs flex items-center gap-1">
-                <span>Blood:</span>
-                <span className="text-red-300 text-sm">{emergencyInfo?.blood_type || 'O+'}</span>
+              <div className="flex items-center gap-1.5">
+                {/* Blood Type Badge */}
+                <div className="px-2.5 py-1 rounded-2xl bg-red-600/30 border border-red-400/50 text-white font-mono font-black text-xs flex items-center gap-1">
+                  <span>Blood:</span>
+                  <span className="text-red-300 text-sm">{emergencyInfo?.blood_type || 'O+'}</span>
+                </div>
+
+                {/* Weight Badge */}
+                {emergencyInfo?.weight && (
+                  <div className="px-2.5 py-1 rounded-2xl bg-red-600/30 border border-red-400/50 text-white font-mono font-black text-xs flex items-center gap-1">
+                    <span>Weight:</span>
+                    <span className="text-red-300 text-sm">{emergencyInfo.weight} kg</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Quick Medical Facts Grid */}
+            {/* Medical Info & Allergies Grid */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="p-2.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">⚠️ Allergies</span>
@@ -284,14 +444,14 @@ export default function Profile() {
               </div>
 
               <div className="p-2.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">🏥 Medical Conditions</span>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">🏥 Medical Info</span>
                 <p className="text-xs font-semibold text-white mt-0.5 truncate">
                   {emergencyInfo?.medical_conditions || 'None'}
                 </p>
               </div>
             </div>
 
-            {/* Emergency Contact Bar with 1-Tap Call Link */}
+            {/* Emergency Contact Info with 1-Tap Call */}
             <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-3 text-xs">
               <div className="min-w-0">
                 <span className="text-[10px] text-slate-400 block font-medium">In case of emergency, contact:</span>
@@ -309,7 +469,7 @@ export default function Profile() {
               {emergencyInfo?.emergency_contact_phone && (
                 <a
                   href={`tel:${emergencyInfo.emergency_contact_phone.replace(/\s+/g, '')}`}
-                  className="px-3 py-2 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition shrink-0 cursor-pointer"
+                  className="px-3.5 py-2 rounded-2xl bg-[#f05c48] hover:bg-[#e44e39] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition shrink-0 cursor-pointer border border-white/20"
                 >
                   <Phone size={13} />
                   <span>Call</span>
@@ -319,195 +479,310 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* ── 2. MOUNTAINS CONQUERED (FEATURED DIRECTLY ON PROFILE) ─────── */}
-        <div className="space-y-2">
+        {/* ═══════════════════════════════════════════════════════════════════════
+            3. MOUNTAINS CONQUERED (AT THE BOTTOM) — gallery grid of every mountain hiked
+            ═══════════════════════════════════════════════════════════════════════ */}
+        <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-              <Mountain size={14} className="text-emerald-400" />
-              <span>Mountains Conquered & Summits</span>
-            </h3>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <Mountain size={14} className="text-emerald-400" />
+                <span>Mountains Conquered</span>
+              </h3>
+              <p className="text-[11px] text-slate-400">Tap a mountain photo to view hike details & memories</p>
+            </div>
             <button
-              onClick={() => navigate('/mountain-tracker')}
-              className="text-[11px] font-bold text-emerald-300 hover:text-emerald-200 underline cursor-pointer"
+              onClick={() => setShowLogSummitModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 active:scale-95 transition cursor-pointer shadow-md border border-emerald-400/30"
             >
-              View Full Tracker →
+              <Plus size={13} />
+              <span>Log Peak</span>
             </button>
           </div>
 
-          {/* Frosted Glass Summits Summary Card */}
-          <div className="rounded-3xl p-4 sm:p-5 bg-gradient-to-br from-emerald-950/50 via-slate-900/70 to-slate-950/80 backdrop-blur-2xl border border-emerald-500/30 shadow-2xl space-y-3">
-            {/* 3 Metric Stats Grid */}
-            <div className="grid grid-cols-3 gap-2 text-center divide-x divide-white/10 py-1">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Summits</span>
-                <p className="text-xl font-black text-emerald-400 font-mono mt-0.5">
-                  {conqueredHikes.length}
-                </p>
-                <span className="text-[9px] text-slate-400">Peaks logged</span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Elevation</span>
-                <p className="text-xl font-black text-amber-400 font-mono mt-0.5">
-                  {totalElevationGained.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">m</span>
-                </p>
-                <span className="text-[9px] text-slate-400">Total climb</span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Distance</span>
-                <p className="text-xl font-black text-sky-400 font-mono mt-0.5">
-                  {totalKmHiked.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">km</span>
-                </p>
-                <span className="text-[9px] text-slate-400">On mountain trail</span>
-              </div>
+          {/* Gallery Grid of Every Mountain the User Has Hiked */}
+          {conqueredHikes.length === 0 ? (
+            <div className="p-8 rounded-3xl bg-white/5 border border-dashed border-white/15 text-center space-y-2">
+              <Mountain size={36} className="mx-auto text-slate-500" />
+              <p className="text-xs text-slate-300 font-semibold">No mountains conquered yet.</p>
+              <p className="text-[11px] text-slate-500">Conquer your first summit or log your past hikes!</p>
             </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {conqueredHikes.map((hike, idx) => {
+                const photo = (hike.photos && hike.photos.length > 0)
+                  ? hike.photos[0]
+                  : defaultMountainImages[idx % defaultMountainImages.length];
+                const memoriesCount = hike.photos?.length || 0;
 
-            {/* Recent Conquered Mountains Badges */}
-            <div className="space-y-1.5 pt-2 border-t border-white/10">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Recent Conquered Summits:
-              </p>
-              <div className="space-y-1.5">
-                {conqueredHikes.slice(0, 3).map((hike, idx) => (
+                return (
                   <div
                     key={hike.id || idx}
-                    onClick={() => navigate('/mountain-tracker')}
-                    className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-xs transition cursor-pointer"
+                    onClick={() => setSelectedDetailHike(hike)}
+                    className="relative rounded-3xl overflow-hidden bg-slate-900 border border-white/15 hover:border-emerald-400/60 shadow-xl group cursor-pointer active:scale-[0.98] transition flex flex-col justify-end min-h-[170px]"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[11px] shrink-0">
-                        ⛰️
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-white truncate text-xs">
-                          {hike.mountain || hike.trail_name || 'Philippine Peak'}
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          {hike.elevation_gain_m ? `${hike.elevation_gain_m}m elevation` : 'Summit'} • {hike.distance_km ? `${hike.distance_km} km` : 'Trail'}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                      Conquered ✓
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+                    {/* Background Mountain Photo */}
+                    <img
+                      src={photo}
+                      alt={hike.mountain || 'Mountain'}
+                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
 
-            {/* Quick Log Button */}
-            <button
-              onClick={() => navigate('/mountain-tracker')}
-              className="w-full py-2.5 rounded-2xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Plus size={14} />
-              <span>Log Another Summit in Mountain Tracker</span>
-            </button>
-          </div>
+                    {/* Top Badges */}
+                    <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-emerald-600/90 text-white shadow-md backdrop-blur-md">
+                        Conquered ✓
+                      </span>
+                      {memoriesCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-black/60 text-slate-200 border border-white/20 backdrop-blur-md flex items-center gap-1">
+                          <Camera size={10} />
+                          <span>{memoriesCount}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Bottom Info Overlay */}
+                    <div className="relative z-10 p-3 space-y-0.5">
+                      <h4 className="font-extrabold text-sm text-white truncate leading-tight group-hover:text-emerald-300 transition">
+                        {hike.mountain || hike.trail_name || 'Mountain Peak'}
+                      </h4>
+                      <p className="text-[10px] text-slate-300 font-medium">
+                        {hike.date || 'Completed Hike'}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* ── 3. INSTALL APP ON PHONE (PWA - NATIVE FEEL ON ANDROID / CHROME) ─ */}
-        <div className="space-y-1.5">
+        {/* ── ADDITIONAL CONVENIENCE LINKS ───────────────────────────────── */}
+        <div className="pt-4 border-t border-white/10 space-y-2">
+          {/* Quick link to Your Routes (Upcoming and History) */}
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-install-pwa-modal'))}
-            className="w-full flex items-center gap-3.5 bg-gradient-to-r from-emerald-950/70 via-teal-950/60 to-slate-900/80 border border-emerald-500/40 hover:border-emerald-400 text-white rounded-3xl p-4 shadow-xl active:scale-[0.98] transition cursor-pointer group text-left relative overflow-hidden backdrop-blur-2xl"
+            onClick={() => setShowUpcomingHikesModal(true)}
+            className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-bold transition active:scale-95 cursor-pointer backdrop-blur-md"
           >
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 transition">
-              <Smartphone size={22} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-extrabold text-sm text-white">Install App on Phone (Native)</p>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950">
-                  Android & Chrome
-                </span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                <Navigation size={16} />
               </div>
-              <p className="text-xs text-emerald-200/70 truncate mt-0.5">
-                Home screen icon • Fullscreen • Satellite GPS offline
-              </p>
+              <span>Your Routes (Upcoming and History)</span>
             </div>
-            <div className="flex items-center gap-1.5 text-emerald-300 font-bold text-xs bg-emerald-500/20 border border-emerald-400/30 px-3 py-1.5 rounded-xl shrink-0 group-hover:bg-emerald-500 group-hover:text-slate-950 transition">
-              <Download size={13} />
-              <span>Install</span>
-            </div>
+            <ChevronRight size={16} className="text-slate-400" />
+          </button>
+
+          {/* Sign Out Button */}
+          <button
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-2 bg-red-950/30 hover:bg-red-950/50 border border-red-500/30 text-red-300 py-3 rounded-2xl font-bold text-xs active:scale-95 transition shadow-lg backdrop-blur-xl cursor-pointer"
+          >
+            <LogOut size={16} /> Log Out of Account
           </button>
         </div>
 
-        {/* ── 4. OPEN LIVE MAP HERO BUTTON ──────────────────────────────── */}
-        <button
-          onClick={() => navigate('/map')}
-          className="w-full flex items-center gap-3.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-3xl p-4 shadow-xl active:scale-[0.98] transition cursor-pointer border border-white/20 group backdrop-blur-2xl"
-        >
-          <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition">
-            <Map size={22} />
-          </div>
-          <div className="text-left flex-1 min-w-0">
-            <p className="font-bold text-sm">Interactive GPS Map</p>
-            <p className="text-xs text-white/80">Satellite view, custom route planner & live tracking</p>
-          </div>
-          <div className="flex items-center gap-1 text-white font-bold text-xs bg-white/20 px-2.5 py-1.5 rounded-xl shrink-0">
-            <span>Explore</span>
-            <ChevronRight size={14} />
-          </div>
-        </button>
-
-        {/* ── 5. ALL HIKING TOOLS IN FROSTED GLASS LIST ─────────────────── */}
-        <div>
-          <div className="flex items-center justify-between mb-2 px-1">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider">
-              TrekQuest Hiking Tools
-            </h3>
-            <span className="text-[11px] text-slate-500">Tap to open</span>
-          </div>
-
-          <div className="space-y-2">
-            {links.map(({ label, sub, icon: Icon, to, color, tag }) => (
-              <button
-                key={to}
-                onClick={() => navigate(to)}
-                className="w-full flex items-center gap-3 bg-slate-900/50 hover:bg-slate-900/80 border border-white/10 hover:border-emerald-500/40 rounded-2xl p-3 shadow-md active:scale-[0.98] transition cursor-pointer group text-left backdrop-blur-xl"
-              >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition ${color}`}>
-                  <Icon size={18} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold text-sm text-white truncate group-hover:text-emerald-400 transition">
-                      {label}
-                    </p>
-                    {tag && (
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                        {tag}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400 truncate mt-0.5">{sub}</p>
-                </div>
-                <div className="p-1 rounded-lg text-slate-400 group-hover:text-white group-hover:translate-x-0.5 transition">
-                  <ChevronRight size={18} />
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Log out */}
-        <button
-          onClick={logout}
-          className="w-full flex items-center justify-center gap-2 bg-red-950/30 hover:bg-red-950/50 border border-red-500/30 text-red-300 py-3 rounded-2xl font-bold active:scale-95 transition shadow-lg backdrop-blur-xl cursor-pointer"
-        >
-          <LogOut size={16} /> Log Out of Account
-        </button>
-
         <p className="text-center text-xs text-slate-500 pt-1">
-          TrekQuest • Philippine Mountain Trail Companion
+          TrekQuest • &ldquo;Your smart hiking companion, on or off the grid&rdquo;
         </p>
       </div>
 
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MOUNTAIN DETAIL MODAL (tap a mountain photo):
+          Date, Duration, Steps taken, Calories burned, Notes, Journal entry,
+          Memories (photos taken during that hike).
+          ═══════════════════════════════════════════════════════════════════════ */}
+      {selectedDetailHike && (
+        <div className="fixed inset-0 z-[3200] bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-white/20 rounded-3xl max-w-md w-full overflow-hidden shadow-2xl text-white my-auto max-h-[92vh] flex flex-col">
+            
+            {/* Mountain Hero Photo Header */}
+            <div className="relative aspect-video w-full bg-black shrink-0 overflow-hidden">
+              <img
+                src={
+                  selectedDetailHike.photos?.[0] ||
+                  defaultMountainImages[0]
+                }
+                alt={selectedDetailHike.mountain}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/60" />
+
+              <button
+                onClick={() => setSelectedDetailHike(null)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center backdrop-blur-md border border-white/20 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="absolute bottom-3 left-4 right-4">
+                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950">
+                  CONQUERED SUMMIT
+                </span>
+                <h3 className="text-xl font-black text-white mt-1 leading-tight">
+                  {selectedDetailHike.mountain || selectedDetailHike.trail_name}
+                </h3>
+              </div>
+            </div>
+
+            {/* Scrollable Details Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 no-scrollbar">
+              
+              {/* 4 Stats Grid: Date, Duration, Steps taken, Calories burned */}
+              <div className="grid grid-cols-4 gap-2 text-center p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
+                {/* 1. Date */}
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block flex items-center justify-center gap-0.5">
+                    <Calendar size={10} className="text-emerald-400" /> Date
+                  </span>
+                  <p className="text-xs font-bold text-white mt-1 truncate">
+                    {selectedDetailHike.date || 'Recent'}
+                  </p>
+                </div>
+
+                {/* 2. Duration */}
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block flex items-center justify-center gap-0.5">
+                    <Clock size={10} className="text-amber-400" /> Duration
+                  </span>
+                  <p className="text-xs font-bold text-amber-300 font-mono mt-1">
+                    {selectedDetailHike.duration_minutes
+                      ? `${Math.floor(selectedDetailHike.duration_minutes / 60)}h ${selectedDetailHike.duration_minutes % 60}m`
+                      : '3h 30m'}
+                  </p>
+                </div>
+
+                {/* 3. Steps Taken */}
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block flex items-center justify-center gap-0.5">
+                    <Footprints size={10} className="text-sky-400" /> Steps
+                  </span>
+                  <p className="text-xs font-bold text-sky-300 font-mono mt-1">
+                    {(selectedDetailHike.steps || 14500).toLocaleString()}
+                  </p>
+                </div>
+
+                {/* 4. Calories Burned */}
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase block flex items-center justify-center gap-0.5">
+                    <Flame size={10} className="text-rose-400" /> Calories
+                  </span>
+                  <p className="text-xs font-bold text-rose-300 font-mono mt-1">
+                    {selectedDetailHike.calories || 850} kcal
+                  </p>
+                </div>
+              </div>
+
+              {/* Elevation & Distance Ribbon */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/5 text-xs text-slate-300">
+                <span className="font-semibold">Elevation Gain: <strong className="text-emerald-400">{selectedDetailHike.elevation_gain_m || 1200} m</strong></span>
+                <span className="font-semibold">Distance: <strong className="text-sky-400">{selectedDetailHike.distance_km || 10.2} km</strong></span>
+              </div>
+
+              {/* Notes Section */}
+              <div className="space-y-1">
+                <h4 className="text-xs font-black uppercase text-emerald-400 tracking-wider">
+                  Notes
+                </h4>
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs text-slate-300 leading-relaxed">
+                  {selectedDetailHike.notes || 'Hike completed successfully along scenic mountain trails.'}
+                </div>
+              </div>
+
+              {/* Journal Entry Section */}
+              <div className="space-y-1">
+                <h4 className="text-xs font-black uppercase text-amber-400 tracking-wider">
+                  Journal Entry
+                </h4>
+                <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs text-slate-300 leading-relaxed italic">
+                  &ldquo;{selectedDetailHike.journal_entry || selectedDetailHike.notes || 'A memorable summit experience surrounded by breathtaking ridge views.'}&rdquo;
+                </div>
+              </div>
+
+              {/* Memories Section (photos taken during that hike) */}
+              <div className="space-y-2 pt-1 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                    <Camera size={14} className="text-emerald-400" />
+                    <span>Memories ({selectedDetailHike.photos?.length || 0} Photos)</span>
+                  </h4>
+                  <button
+                    onClick={() => detailPhotoInputRef.current?.click()}
+                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={12} /> Add Photo
+                  </button>
+                  <input
+                    ref={detailPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleAddMemoryPhoto}
+                  />
+                </div>
+
+                {(!selectedDetailHike.photos || selectedDetailHike.photos.length === 0) ? (
+                  <div className="p-4 rounded-2xl bg-white/5 border border-dashed border-white/10 text-center text-xs text-slate-400">
+                    No memories taken yet. Photos taken with the in-app camera during a hike auto-save here!
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {selectedDetailHike.photos.map((imgUrl, i) => (
+                      <div
+                        key={i}
+                        onClick={() => setFullscreenPhoto(imgUrl)}
+                        className="relative aspect-square rounded-2xl overflow-hidden bg-black border border-white/10 cursor-pointer group"
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={`Memory ${i + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-110 transition duration-200"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-white/10 bg-slate-950/80">
+              <button
+                onClick={() => setSelectedDetailHike(null)}
+                className="w-full py-3 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs active:scale-95 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Photo Viewer */}
+      {fullscreenPhoto && (
+        <div
+          onClick={() => setFullscreenPhoto(null)}
+          className="fixed inset-0 z-[3500] bg-black/95 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <button
+            onClick={() => setFullscreenPhoto(null)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <X size={20} />
+          </button>
+          <img
+            src={fullscreenPhoto}
+            alt="Fullscreen Memory"
+            className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+          />
+        </div>
+      )}
+
       {/* ── MODAL: EDIT PROFILE NAME & PHOTO ──────────────────────────── */}
       {showEditModal && (
-        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[3100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-white/20 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-white">
             <div className="flex items-center justify-between pb-2 border-b border-white/10">
               <h3 className="font-black text-sm text-white flex items-center gap-2">
@@ -611,6 +886,17 @@ export default function Profile() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
+                  <label className="text-[11px] font-bold text-slate-400 block mb-1">Weight (kg)</label>
+                  <input
+                    type="number"
+                    value={emergencyForm.weight}
+                    onChange={(e) => setEmergencyForm({ ...emergencyForm, weight: e.target.value })}
+                    placeholder="e.g. 65"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                  />
+                </div>
+
+                <div>
                   <label className="text-[11px] font-bold text-slate-400 block mb-1">Blood Type</label>
                   <input
                     value={emergencyForm.blood_type}
@@ -619,16 +905,16 @@ export default function Profile() {
                     className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="text-[11px] font-bold text-slate-400 block mb-1">Allergies</label>
-                  <input
-                    value={emergencyForm.allergies}
-                    onChange={(e) => setEmergencyForm({ ...emergencyForm, allergies: e.target.value })}
-                    placeholder="e.g. Penicillin, Peanuts"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
-                  />
-                </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Allergies</label>
+                <input
+                  value={emergencyForm.allergies}
+                  onChange={(e) => setEmergencyForm({ ...emergencyForm, allergies: e.target.value })}
+                  placeholder="e.g. Penicillin, Peanuts"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                />
               </div>
 
               <div>
@@ -704,6 +990,171 @@ export default function Profile() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── MODAL: LOG CONQUERED PEAK DIRECTLY ON PROFILE ───────────── */}
+      {showLogSummitModal && (
+        <div className="fixed inset-0 z-[3100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl max-w-md w-full p-5 space-y-3.5 shadow-2xl text-white my-auto max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <h3 className="font-black text-sm text-emerald-400 flex items-center gap-2">
+                <Mountain size={16} />
+                <span>Log Conquered Mountain Peak</span>
+              </h3>
+              <button
+                onClick={() => setShowLogSummitModal(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Mountain Peak Name</label>
+                <input
+                  value={summitForm.mountain}
+                  onChange={(e) => setSummitForm({ ...summitForm, mountain: e.target.value })}
+                  placeholder="e.g. Mt. Pulag Summit, Mt. Apo Peak"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 block mb-1">Elevation Gain (meters)</label>
+                  <input
+                    type="number"
+                    value={summitForm.elevation_gain_m}
+                    onChange={(e) => setSummitForm({ ...summitForm, elevation_gain_m: e.target.value })}
+                    placeholder="e.g. 2928"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 block mb-1">Trail Distance (km)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={summitForm.distance_km}
+                    onChange={(e) => setSummitForm({ ...summitForm, distance_km: e.target.value })}
+                    placeholder="e.g. 16.5"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Difficulty</label>
+                <select
+                  value={summitForm.difficulty}
+                  onChange={(e) => setSummitForm({ ...summitForm, difficulty: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs"
+                >
+                  <option value="easy">Easy (Minor Climb)</option>
+                  <option value="moderate">Moderate Trail</option>
+                  <option value="challenging">Challenging / Major Climb</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Summit Photo (Optional)</label>
+                <div className="flex gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={() => summitPhotoInputRef.current?.click()}
+                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Camera size={14} />
+                    <span>Upload Photo</span>
+                  </button>
+                  {summitForm.photo && (
+                    <span className="text-emerald-400 text-[11px] font-bold">Photo attached ✓</span>
+                  )}
+                  <input
+                    ref={summitPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => setSummitForm((f) => ({ ...f, photo: ev.target.result }));
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Summit Notes & Memories</label>
+                <textarea
+                  value={summitForm.notes}
+                  onChange={(e) => setSummitForm({ ...summitForm, notes: e.target.value })}
+                  placeholder="e.g. Reached peak at sunrise, sea of clouds, cold summit wind."
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-white/10 text-white text-xs resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowLogSummitModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSummit}
+                disabled={isSavingSummit || !summitForm.mountain.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs active:scale-95 transition disabled:opacity-50"
+              >
+                {isSavingSummit ? 'Saving…' : 'Save Conquered Peak'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: UPCOMING HIKES & HISTORY ───────────────────────────── */}
+      <UpcomingHikesModal
+        isOpen={showUpcomingHikesModal}
+        onClose={() => setShowUpcomingHikesModal(false)}
+        onStartHike={(hike) => {
+          setShowUpcomingHikesModal(false);
+          try {
+            localStorage.setItem('trekquest_active_hike_start', JSON.stringify(hike));
+            localStorage.setItem('trekquest_auto_start_hike', 'true');
+            if (hike.startCoords) {
+              localStorage.setItem('trekquest_custom_start', JSON.stringify(hike.startCoords));
+            }
+          } catch {}
+          navigate('/');
+        }}
+        onViewOnMap={(hike) => {
+          setShowUpcomingHikesModal(false);
+          navigate('/map');
+        }}
+        onPlanNewRoute={() => {
+          setShowUpcomingHikesModal(false);
+          setShowPlanRouteModal(true);
+        }}
+        initialSelectedId={upcomingInitialId}
+      />
+
+      {/* ── MODAL: PLAN A ROUTE ────────────────────────────────────────── */}
+      {showPlanRouteModal && (
+        <PlanRouteModal
+          onClose={() => setShowPlanRouteModal(false)}
+          onSaveRoute={(plannedHike) => {
+            setShowPlanRouteModal(false);
+            if (plannedHike?.id) setUpcomingInitialId(plannedHike.id);
+            setShowUpcomingHikesModal(true);
+          }}
+        />
       )}
 
     </div>

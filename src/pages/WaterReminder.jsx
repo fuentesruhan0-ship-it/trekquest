@@ -41,9 +41,11 @@ export default function WaterReminder() {
     }
     intervalRef.current = setInterval(() => {
       const mins = Math.floor((Date.now() - lastDrink) / 60000);
-      if (mins >= 20) {
+      if (mins >= 30) {
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Time to drink water! 💧', { body: 'Stay hydrated on the trail.' });
+          new Notification('💧 Water & Rest Reminder', {
+            body: `You have been walking for ${mins} minutes now. Find a shade to take some water and rest.`,
+          });
         }
         // beep
         try {
@@ -105,7 +107,7 @@ export default function WaterReminder() {
           onClick={enableReminder}
           className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition active:scale-95 ${reminderOn ? 'bg-cyan-100 text-cyan-700' : 'bg-card border border-border'}`}
         >
-          <Bell size={18} /> {reminderOn ? 'Reminders ON — tap to stop' : 'Enable reminders (every 20 min)'}
+          <Bell size={18} /> {reminderOn ? 'Reminders ON — tap to stop' : 'Enable reminders (every 30 min)'}
         </button>
 
         {/* Calculator */}

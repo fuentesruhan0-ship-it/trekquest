@@ -96,6 +96,26 @@ export const philippinePlaces = [
   { name: 'Mt. Kalawitan', region: 'Sabangan, Mountain Province', type: 'Mountain Peak', elevation: '2,714m', difficulty: 'Hard', lat: 17.0000, lng: 120.9333, desc: 'Fourth highest peak in Luzon with mossy pine forest.' },
   { name: 'Mt. Kupapey', region: 'Maligcong, Bontoc', type: 'Mountain Peak', elevation: '1,647m', difficulty: 'Easy', lat: 17.1333, lng: 120.9833, desc: 'Sunrise vantage point overlooking ancient rice terraces.' },
   { name: 'Mt. Fato', region: 'Maligcong, Bontoc', type: 'Mountain Peak', elevation: '1,500m', difficulty: 'Easy', lat: 17.1167, lng: 120.9667, desc: 'Massive boulders and pine forest ridge in Mountain Province.' },
+  { name: 'Mt. Tapulao', region: 'Palauig, Zambales', type: 'Mountain Peak', elevation: '2,037m', difficulty: 'Hard', lat: 15.4833, lng: 120.1167, desc: 'High Peak with cool pine forests, rolling red soil roads, and sea of clouds.' },
+  { name: 'Mt. Halcon', region: 'Baco, Oriental Mindoro', type: 'Mountain Peak', elevation: '2,586m', difficulty: 'Expert', lat: 13.2500, lng: 120.9833, desc: 'Rugged knife-edge ridges and dense pristine rainforests.' },
+  { name: 'Mt. Madjaas', region: 'Culasi, Antique', type: 'Mountain Peak', elevation: '2,117m', difficulty: 'Expert', lat: 11.3833, lng: 122.1500, desc: 'Highest peak in Panay Island with bonsai mossy forests and 14 waterfalls.' },
+  { name: 'Mt. Mantalingajan', region: 'Brookes Point, Palawan', type: 'Mountain Peak', elevation: '2,085m', difficulty: 'Expert', lat: 8.8167, lng: 117.6667, desc: 'Crown summit of Palawan featuring the treacherous Knife Edge ridge.' },
+  { name: 'Mt. Tabayoc', region: 'Kabayan, Benguet', type: 'Mountain Peak', elevation: '2,842m', difficulty: 'Hard', lat: 16.7167, lng: 120.9000, desc: 'Second highest peak in Luzon, deep mossy monkey forest and 4 mystical lakes.' },
+  { name: 'Mt. Timbak', region: 'Atok, Benguet', type: 'Mountain Peak', elevation: '2,717m', difficulty: 'Easy', lat: 16.5833, lng: 120.7667, desc: 'Third highest in Luzon with high-altitude vegetable terraces and fire mummies.' },
+  { name: 'Mt. Natib', region: 'Orani, Bataan', type: 'Mountain Peak', elevation: '1,253m', difficulty: 'Hard', lat: 14.7167, lng: 120.4000, desc: 'Limatik trail and Pasukulan falls in dense Bataan National Park.' },
+  { name: 'Mt. Balagbag', region: 'Rodriguez, Rizal', type: 'Mountain Peak', elevation: '777m', difficulty: 'Easy', lat: 14.8000, lng: 121.1500, desc: 'Popular beginner trail and night camp overlooking Metro Manila skyline.' },
+  { name: 'Mt. Tagapo', region: 'Binangonan, Rizal', type: 'Mountain Peak', elevation: '438m', difficulty: 'Easy', lat: 14.3417, lng: 121.2250, desc: 'Center of Laguna de Bay on Talim Island with 360-degree lake panorama.' },
+  { name: 'Mt. Sawi', region: 'Gabaldon, Nueva Ecija', type: 'Mountain Peak', elevation: '594m', difficulty: 'Easy-Mod', lat: 15.5333, lng: 121.3167, desc: 'Scenic rolling ridges and grass hills overlooking the Dingalan coastline.' },
+  { name: 'Mt. Manabu', region: 'Sto. Tomas, Batangas', type: 'Mountain Peak', elevation: '760m', difficulty: 'Easy', lat: 14.0167, lng: 121.2333, desc: 'White cross summit and free civet/barako coffee on the trail.' },
+  { name: 'Mt. Malipunyo', region: 'Lipa, Batangas', type: 'Mountain Peak', elevation: '1,005m', difficulty: 'Moderate', lat: 14.0333, lng: 121.2667, desc: 'Dense rainforest traverse connecting Batangas and Laguna.' },
+  { name: 'Mt. Bulusan', region: 'Bulusan, Sorsogon', type: 'Mountain Peak', elevation: '1,565m', difficulty: 'Hard', lat: 12.7667, lng: 124.0500, desc: 'Active stratovolcano with pristine Bulusan Lake and lush rainforests.' },
+  { name: 'Mt. Kabunian', region: 'Bakun, Benguet', type: 'Mountain Peak', elevation: '1,789m', difficulty: 'Hard', lat: 16.7833, lng: 120.6667, desc: 'Hanging wooden coffins on vertical stone cliffs, Bakun Trio mountain.' },
+  { name: 'Mt. Tenglawan', region: 'Bakun, Benguet', type: 'Mountain Peak', elevation: '1,943m', difficulty: 'Hard', lat: 16.8500, lng: 120.6833, desc: 'The iconic carrot peak rocky pinnacle of Mountain Province.' },
+  { name: 'Mt. Gulugod Baboy', region: 'Mabini, Batangas', type: 'Mountain Peak', elevation: '525m', difficulty: 'Easy', lat: 13.7333, lng: 120.9000, desc: 'Gentle grassy ridge with sweeping views of Batangas and Balayan bays.' },
+  { name: 'Mt. 387 (Batong Amat)', region: 'Carranglan, Nueva Ecija', type: 'Mountain Peak', elevation: '724m', difficulty: 'Moderate', lat: 15.9667, lng: 120.9500, desc: 'The Chocolate Hills of the North with pine ridges and Aloha falls.' },
+  { name: 'Kafok Peak (Mt. Kafok)', region: 'Tupi, South Cotabato, Mindanao', type: 'Mountain Peak', elevation: '1,090m', difficulty: 'Moderate', lat: 6.3606, lng: 125.0229, desc: 'Eco-cultural mountain peak in Sitio Kafok, Brgy. Acmonan, Tupi (1,090 MASL) with panoramic vistas of Mt. Matutum.' },
+  { name: 'Fok Peak', region: 'Tupi, South Cotabato, Mindanao', type: 'Mountain Peak', elevation: '1,090m', difficulty: 'Moderate', lat: 6.3606, lng: 125.0229, desc: 'Fok Peak summit (1,090 MASL), popular day hike and camping destination in South Cotabato.' },
+  { name: 'Mt. Matutum', region: 'Tupi, South Cotabato, Mindanao', type: 'Mountain Peak', elevation: '2,286m', difficulty: 'Hard', lat: 6.3600, lng: 125.0750, desc: 'Prominent conical stratovolcano in South Cotabato, sanctuary of the Philippine Eagle.' },
 ];
 
 // Calculate Haversine Great-Circle distance in Kilometers
@@ -131,6 +151,140 @@ export function getCompassDirection(deg) {
   return dirs[ix];
 }
 
+// Parse elevation string or number to clean integer in meters ("2,928m" -> 2928, 811 -> 811)
+export function parseElevation(val) {
+  if (val == null) return null;
+  if (typeof val === 'number') return isNaN(val) || val <= 0 ? null : Math.round(val);
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/,/g, '').replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) || num <= 0 ? null : Math.round(num);
+  }
+  return null;
+}
+
+// Get realistic destination elevation in meters by checking elevation property, mountain name, or nearest peak proximity
+export function getDestinationElevation(destination, coords = null) {
+  // 1. Direct elevation or elevation_gain_m property
+  const direct = parseElevation(destination?.elevation) ||
+                 parseElevation(destination?.elevation_gain_m) ||
+                 parseElevation(destination?.masl) ||
+                 parseElevation(destination?.ele);
+  if (direct) return direct;
+
+  const lat = destination?.lat != null ? destination.lat : (coords ? coords[0] : null);
+  const lng = destination?.lng != null ? destination.lng : (coords ? coords[1] : null);
+
+  const rawName = (destination?.name || destination?.destName || destination?.mountain || destination?.label || destination?.desc || '').toLowerCase().trim();
+
+  // 1.5 Extract embedded elevation from name, label, or description (e.g. "Fok Peak 1090 m", "Kafok (1090 MASL)", "1090m")
+  const embeddedEleMatch = rawName.match(/(\d{3,4}(?:,\d{3})?)\s*(?:m\b|masl|meters)/i);
+  if (embeddedEleMatch) {
+    const extracted = parseElevation(embeddedEleMatch[1]);
+    if (extracted && extracted >= 100) return extracted;
+  }
+
+  // 1.6 Dedicated verified match for Kafok / Fok Peak (1,090 MASL in Tupi, South Cotabato)
+  if (rawName.includes('kafok') || rawName.includes('fok peak') || rawName.includes('mt. fok') || rawName.includes('mt fok')) {
+    return 1090;
+  }
+
+  // 2. Exact or substring match in mountain dataset by name
+  if (rawName) {
+    const cleanRaw = rawName.replace(/^(mt\.?|mount)\s*/i, '').trim();
+    const match = philippinePlaces.find((p) => {
+      if (!p.elevation) return false;
+      const pName = p.name.toLowerCase().trim();
+      const pClean = pName.replace(/^(mt\.?|mount)\s*/i, '').trim();
+      return pName === rawName || rawName.includes(pClean) || pClean.includes(cleanRaw) ||
+             (cleanRaw.length >= 3 && pClean.includes(cleanRaw));
+    });
+    if (match) {
+      const matchEle = parseElevation(match.elevation);
+      if (matchEle) return matchEle;
+    }
+  }
+
+  // 3. Proximity search: find closest mountain peak in dataset within 45 km
+  if (lat != null && lng != null) {
+    const mountainPeaks = philippinePlaces.filter((p) => p.type === 'Mountain Peak' && p.elevation);
+    let closestPeak = null;
+    let minDistance = Infinity;
+
+    for (const peak of mountainPeaks) {
+      const dist = haversine([lat, lng], [peak.lat, peak.lng]);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestPeak = peak;
+      }
+    }
+
+    if (closestPeak && minDistance <= 45) {
+      const closestEle = parseElevation(closestPeak.elevation);
+      if (closestEle) return closestEle;
+    }
+  }
+
+  // 4. Default realistic trail elevation
+  return 650;
+}
+
+// In-memory elevation cache to eliminate redundant network requests
+const elevationCache = new Map();
+
+// High-Accuracy Elevation: Queries Open-Meteo Digital Elevation Model (Copernicus 90m DEM)
+// for any exact geographic coordinate, with instant fallback to local mountain database
+export async function fetchAccurateElevation(lat, lng, destination = null) {
+  if (lat == null || lng == null) {
+    return getDestinationElevation(destination);
+  }
+
+  const numLat = Number(lat);
+  const numLng = Number(lng);
+  if (isNaN(numLat) || isNaN(numLng)) {
+    return getDestinationElevation(destination);
+  }
+
+  const cacheKey = `${numLat.toFixed(3)},${numLng.toFixed(3)}`;
+  if (elevationCache.has(cacheKey)) {
+    return elevationCache.get(cacheKey);
+  }
+
+  // Baseline elevation from verified mountain database
+  const fallbackEle = getDestinationElevation(destination, [numLat, numLng]);
+
+  // Query live satellite Digital Elevation Model (DEM)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/elevation?latitude=${numLat.toFixed(4)}&longitude=${numLng.toFixed(4)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      const val = data?.elevation?.[0];
+      if (val != null && !isNaN(val) && val > 0) {
+        const demEle = Math.round(val);
+        const destNameLower = (destination?.name || destination?.destName || destination?.mountain || '').toLowerCase();
+        const isPeak = destination?.type === 'Mountain Peak' ||
+          destNameLower.includes('mt') ||
+          destNameLower.includes('peak') ||
+          destNameLower.includes('fok') ||
+          destNameLower.includes('kafok');
+        const finalEle = isPeak ? Math.max(fallbackEle, demEle) : demEle;
+        elevationCache.set(cacheKey, finalEle);
+        return finalEle;
+      }
+    }
+  } catch {}
+
+  elevationCache.set(cacheKey, fallbackEle);
+  return fallbackEle;
+}
+
 // Broad Place Search: Matches every letter typed across local database + live Nominatim
 export async function searchBroadPlaces(query) {
   const q = (query || '').toLowerCase().trim();
@@ -152,7 +306,7 @@ export async function searchBroadPlaces(query) {
   // 2. Query Nominatim for any place, city, barangay, or landmark
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=12&addressdetails=1`
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=12&addressdetails=1&extratags=1`
     );
     if (res.ok) {
       const data = await res.json();
@@ -204,7 +358,9 @@ export async function searchBroadPlaces(query) {
             name: formattedName,
             region: item.display_name.split(',').slice(1, 4).join(', ').trim(),
             type: placeType,
-            elevation: item.extratags?.ele ? `${item.extratags.ele}m` : (placeType === 'Mountain Peak' ? 'Summit' : 'Trail Area'),
+            elevation: item.extratags?.ele
+              ? `${item.extratags.ele}m`
+              : `${getDestinationElevation({ name: formattedName, lat: parseFloat(item.lat), lng: parseFloat(item.lon) })}m`,
             difficulty: placeType === 'Mountain Peak' ? 'Moderate' : 'Accessible',
             lat: parseFloat(item.lat),
             lng: parseFloat(item.lon),

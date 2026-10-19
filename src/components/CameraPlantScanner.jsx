@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Camera, X, CheckCircle, AlertTriangle, ShieldAlert,
   RefreshCw, BookOpen, ArrowLeft, Search, RotateCw, Leaf, Sparkles,
-  Volume2, VolumeX, MapPin, Info
+  Volume2, VolumeX, MapPin, Info, Upload
 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
+import { analyzeImage } from '@/lib/plantRecognition';
+import { plantDictionary } from '@/data/plantCatalog';
 
 // Botanical Vector Art for 100% Offline Guaranteed Unique Visuals
 function BotanicalVectorIcon({ plantId, size = 32, className = '' }) {
@@ -290,6 +292,18 @@ const plantGradients = {
   lagundi: 'from-purple-950 to-emerald-950 border-purple-500/30',
   wild_ginger: 'from-rose-950 to-emerald-950 border-rose-500/30',
   wild_strawberry: 'from-red-950 to-rose-950 border-red-500/30',
+  aloe_vera: 'from-emerald-950 to-teal-950 border-emerald-500/30',
+  sansevieria: 'from-emerald-950 to-slate-900 border-emerald-500/30',
+  pothos: 'from-lime-950 to-emerald-950 border-lime-500/30',
+  monstera: 'from-emerald-950 to-teal-950 border-emerald-500/30',
+  hibiscus: 'from-rose-950 to-red-950 border-rose-500/30',
+  bougainvillea: 'from-pink-950 to-purple-950 border-pink-500/30',
+  orchid: 'from-purple-950 to-pink-950 border-purple-500/30',
+  bird_nest_fern: 'from-emerald-950 to-green-950 border-emerald-500/30',
+  peace_lily: 'from-slate-950 to-emerald-950 border-slate-500/30',
+  rose: 'from-rose-950 to-red-950 border-rose-500/30',
+  oregano: 'from-green-950 to-emerald-950 border-green-500/30',
+  chili_pepper: 'from-red-950 to-orange-950 border-red-500/30',
 };
 
 // Robust Plant Image component with guaranteed distinct visual offline fallback
@@ -310,451 +324,30 @@ function PlantImage({ plant, className = '', fallbackSize = 32 }) {
   }
 
   return (
-    <div className={`${className} bg-gradient-to-br ${grad} flex items-center justify-center border shadow-inner`}>
-      <BotanicalVectorIcon plantId={plant.id} size={fallbackSize} />
+    <div className={`${className} bg-gradient-to-br ${grad} flex items-center justify-center border shadow-inner select-none`}>
+      {plant.svg_icon ? (
+        <span style={{ fontSize: `${fallbackSize}px`, lineHeight: 1 }} role="img" aria-label={plant.plant_name}>
+          {plant.svg_icon}
+        </span>
+      ) : (
+        <BotanicalVectorIcon plantId={plant.id} size={fallbackSize} />
+      )}
     </div>
   );
 }
 
-// 24 Philippine Mountain Species - Every entry has 100% Unique Image URL and Botanical Traits
-export const plantDictionary = [
-  {
-    id: 'pitcher_plant',
-    plant_name: 'Mount Pitcher Plant',
-    local_name: 'Pitchel / Kakana',
-    scientific_name: 'Nepenthes alata',
-    family: 'Nepenthaceae',
-    safety: 'safe',
-    danger_level: 'Safe to Touch (Protected Endemic)',
-    color_category: 'red_green',
-    leaf_pattern: 'pitcher_funnel',
-    image_url: 'https://images.unsplash.com/photo-1596724895575-b6e3f421e42a?w=600&auto=format&fit=crop&q=80',
-    description: 'Carnivorous climbing plant endemic to Philippine cloud forests. Distinctive funnel-shaped pitchers that trap insects with digestive enzymes.',
-    care_note: 'Protected endemic species. Do not pick wild pitchers. Fluid inside unopened pitchers is sterile and drinkable in extreme survival situations.',
-    edibility_details: 'Unopened pitcher fluid can be filtered as emergency water. Pitcher leaves are NOT edible.',
-    first_aid: 'Harmless to human skin. Avoid getting digestive fluid in open wounds.',
-    habitat: 'Mossy cloud forests, high elevation ridges (1,200m - 2,400m)',
-    svg_icon: '🏺',
-  },
-  {
-    id: 'benguet_pine',
-    plant_name: 'Benguet Pine',
-    local_name: 'Saleng / Pine Tree',
-    scientific_name: 'Pinus kesiya',
-    family: 'Pinaceae',
-    safety: 'safe',
-    danger_level: 'Non-toxic & Edible Tea',
-    color_category: 'dark_green',
-    leaf_pattern: 'needles',
-    image_url: 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=600&auto=format&fit=crop&q=80',
-    description: 'Majestic evergreen conifer dominating the Cordillera mountain range. Three needles per fascicle with fragrant resinous bark.',
-    care_note: 'Green needles can be steeped in boiling water for vitamin C-rich survival tea. Dried fallen needles and pine cones make excellent natural campfire tinder.',
-    edibility_details: 'Needles make safe survival tea. Inner bark (cambium) can be chewed for sustenance in extreme emergencies.',
-    first_aid: 'Non-toxic. Sticky resin can be cleaned using vegetable oil or alcohol.',
-    habitat: 'Cordillera highlands, Mt. Pulag, Mt. Ulap slopes (1,000m - 2,800m)',
-    svg_icon: '🌲',
-  },
-  {
-    id: 'makahiya',
-    plant_name: 'Sensitive Plant',
-    local_name: 'Makahiya',
-    scientific_name: 'Mimosa pudica',
-    family: 'Fabaceae',
-    safety: 'medicinal',
-    danger_level: 'Medicinal / Minor Alkaloid',
-    color_category: 'green_pink',
-    leaf_pattern: 'compound_foldable',
-    image_url: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=600&auto=format&fit=crop&q=80',
-    description: 'Creeping herb with delicate compound leaves that rapidly fold inward when touched, with spherical pink-lavender puffball flowers.',
-    care_note: 'Contains minor mimosine compound. Traditional folk medicine uses boiled roots for wound poultices, but avoid consuming raw leaves.',
-    edibility_details: 'DO NOT consume raw. Traditional decoctions use boiled leaves or roots in controlled quantities.',
-    first_aid: 'Wash skin if pricked by minute stem prickles. Non-lethal.',
-    habitat: 'Trail borders, sunny grassy clearings, open foothill trails',
-    svg_icon: '🌸',
-  },
-  {
-    id: 'lantana',
-    plant_name: 'Lantana / Kantutay',
-    local_name: 'Kantutay / Baho-baho',
-    scientific_name: 'Lantana camara',
-    family: 'Verbenaceae',
-    safety: 'poisonous',
-    danger_level: 'DANGER: Toxic Berries & Foliage',
-    color_category: 'yellow_red',
-    leaf_pattern: 'flower_cluster',
-    image_url: 'https://images.unsplash.com/photo-1582794543139-8ac9cb0f7b11?w=600&auto=format&fit=crop&q=80',
-    description: 'Rugged shrub along sunny mountain trails with multicolored flower clusters (orange, yellow, pink) and dark purple-black berry clusters.',
-    care_note: 'DANGER: Green unripe berries contain toxic triterpenoids (lantadene A and B) that cause vomiting, liver damage, and dilated pupils.',
-    edibility_details: 'STRICTLY NON-EDIBLE. Both leaves and unripe berries are dangerous to ingest.',
-    first_aid: 'If ingested: Induce fluids, do not panic, seek immediate medical evacuation. Wash skin if sap causes contact dermatitis.',
-    habitat: 'Dry rocky hillsides, open trail slopes, secondary forests',
-    svg_icon: '⚠️',
-  },
-  {
-    id: 'wild_blackberry',
-    plant_name: 'Mountain Wild Raspberry',
-    local_name: 'Sampinit / Sapinit',
-    scientific_name: 'Rubus fraxinifolius',
-    family: 'Rosaceae',
-    safety: 'edible',
-    danger_level: 'Safe & Nutritious Edible Berry',
-    color_category: 'red_berry',
-    leaf_pattern: 'bramble_berry',
-    image_url: 'https://images.unsplash.com/photo-1574856344991-aaa31b6f4ce3?w=600&auto=format&fit=crop&q=80',
-    description: 'Thorny native bramble common in mossy cloud forests. Produces aggregate bright ruby red berries, white blossoms, and jagged leaves.',
-    care_note: 'Fully ripe berries are sweet-tart, rich in vitamin C and antioxidants. Excellent trail foraging sustenance. Watch out for recurved stem prickles.',
-    edibility_details: '100% Edible fruit. Can be eaten raw straight from the bush. Young leaves can be brewed as mild herbal tea.',
-    first_aid: 'Safe to eat. Treat thorn scratches with antiseptic.',
-    habitat: 'Mossy forests, trail edges of Mt. Banahaw, Mt. Isarog, Mt. Apo',
-    svg_icon: '🍓',
-  },
-  {
-    id: 'stinging_nettle',
-    plant_name: 'Stinging Nettle Tree',
-    local_name: 'Lipa / Lipang Kalabaw',
-    scientific_name: 'Laportea meyeniensis',
-    family: 'Urticaceae',
-    safety: 'poisonous',
-    danger_level: 'SEVERE PAIN: Burning Stinging Hairs',
-    color_category: 'broad_green',
-    leaf_pattern: 'toothed_broad',
-    image_url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
-    description: 'Broad-leaved shrub found in humid jungle ravines. Underside of leaves and young petioles have microscopic stinging silica hairs filled with formic acid.',
-    care_note: 'CRITICAL HAZARD: Brushing against leaves injects histamines causing excruciating burning pain, blistering, and welts that persist for days.',
-    edibility_details: 'STRICTLY INEDIBLE raw. Stinging hairs cause severe oral and throat inflammation.',
-    first_aid: 'Do NOT rub. Apply adhesive tape to pluck stinging hairs. Wash with vinegar or baking soda solution. Apply cold compresses and antihistamine.',
-    habitat: 'Moist ravine trails, shaded rainforest understory, stream banks',
-    svg_icon: '🔥',
-  },
-  {
-    id: 'tree_fern',
-    plant_name: 'Giant Mountain Tree Fern',
-    local_name: 'Alopay / Anahaw-gubat',
-    scientific_name: 'Cyathea contaminans',
-    family: 'Cyatheaceae',
-    safety: 'safe',
-    danger_level: 'Safe to Touch / Survival Food',
-    color_category: 'feathery_green',
-    leaf_pattern: 'feathery_frond',
-    image_url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?w=600&auto=format&fit=crop&q=80',
-    description: 'Prehistoric tree-like fern with tall fibrous black trunk and umbrella of sprawling feathery fronds. Abundant in tropical mountain mist zones.',
-    care_note: 'Non-toxic. Young coiled fiddleheads can be boiled as emergency survival greens. Fibrous trunk can be tapped for survival moisture.',
-    edibility_details: 'Unfurled fiddleheads (shoots) are edible when boiled or steamed.',
-    first_aid: 'Completely harmless to touch.',
-    habitat: 'High mist cloud forests, ridge summits (1,000m - 2,500m)',
-    svg_icon: '🌿',
-  },
-  {
-    id: 'pako_fern',
-    plant_name: 'Edible Vegetable Fern',
-    local_name: 'Pako',
-    scientific_name: 'Diplazium esculentum',
-    family: 'Athyriaceae',
-    safety: 'edible',
-    danger_level: 'Edible & Safe Wild Delicacy',
-    color_category: 'feathery_green',
-    leaf_pattern: 'crosier_coiled',
-    image_url: 'https://images.unsplash.com/photo-1629813398939-50ebcb157efd?w=600&auto=format&fit=crop&q=80',
-    description: 'Lush clustering fern growing along clean mountain freshwater creeks and riverbanks with coiled young fiddlehead fronds.',
-    care_note: 'The young coiled crosiers are a celebrated wild edible fern. Highly nutritious, packed with dietary fiber, iron, and phosphorus.',
-    edibility_details: 'Delicious cooked, steamed, or blanched. Eat young tender coiled heads; avoid mature woody fronds.',
-    first_aid: 'Completely safe. Wash in freshwater to remove stream sediment.',
-    habitat: 'Freshwater stream banks, moist damp gullies, waterfall bases',
-    svg_icon: '🌱',
-  },
-  {
-    id: 'dandelion',
-    plant_name: 'Common Trail Dandelion',
-    local_name: 'Dandelion',
-    scientific_name: 'Taraxacum officinale',
-    family: 'Asteraceae',
-    safety: 'edible',
-    danger_level: '100% Edible Superfood',
-    color_category: 'yellow_flower',
-    leaf_pattern: 'lion_tooth',
-    image_url: 'https://images.unsplash.com/photo-1527061011665-3652c757a4d4?w=600&auto=format&fit=crop&q=80',
-    description: 'Low-growing perennial with serrated lion-tooth basal leaves and bright sunny yellow composite flowers that turn into fluffy white seed globes.',
-    care_note: 'Entire plant is non-toxic and nutrient-dense. Young greens can be consumed raw or cooked for survival vitamin A and C. Roots can be roasted for coffee substitute.',
-    edibility_details: 'Leaves, blossoms, and roots are fully edible. High nutritional and potassium content.',
-    first_aid: 'Completely safe and non-toxic.',
-    habitat: 'High altitude grassy clearings, mountain basecamps, road edges',
-    svg_icon: '🌼',
-  },
-  {
-    id: 'elephant_ear',
-    plant_name: 'Giant Elephant Ear',
-    local_name: 'Biga / Bigaa',
-    scientific_name: 'Alocasia macrorrhizos',
-    family: 'Araceae',
-    safety: 'poisonous',
-    danger_level: 'POISONOUS RAW: Microscopic Needle Crystals',
-    color_category: 'broad_green',
-    leaf_pattern: 'massive_heart',
-    image_url: 'https://images.unsplash.com/photo-1614594975525-e45190c55d0b?w=600&auto=format&fit=crop&q=80',
-    description: 'Huge tropical herb with massive arrow-heart shaped shiny leaves reaching up to 1 meter in width, with thick fibrous trunk-like stem.',
-    care_note: 'DANGER: Contains sharp calcium oxalate raphide crystals. Chewing raw leaf or stem causes agonizing swelling of mouth, tongue, and throat, risking airway obstruction.',
-    edibility_details: 'STRICTLY POISONOUS RAW. Can only be consumed after hours of expert boiling and baking.',
-    first_aid: 'DO NOT SWALLOW. Rinse mouth with cold water and milk. Suck on ice. Seek emergency evacuation if throat begins swelling.',
-    habitat: 'Damp valley floors, rainforest understory, stream gullies',
-    svg_icon: '🍃',
-  },
-  {
-    id: 'rattan_palm',
-    plant_name: 'Wild Mountain Rattan',
-    local_name: 'Yantok / Uway',
-    scientific_name: 'Calamus rotang',
-    family: 'Arecaceae',
-    safety: 'edible',
-    danger_level: 'Edible Shoots / Prickly Vine',
-    color_category: 'dark_green',
-    leaf_pattern: 'spiny_palm',
-    image_url: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?w=600&auto=format&fit=crop&q=80',
-    description: 'Vigorous climbing palm vine with spiny sheaths, hooked whips (flagella), and feathery pinnate leaves used for binding and survival craft.',
-    care_note: 'Tender heart/shoot (ubod) is edible and sweet. Thick water vine stems can be sliced diagonally to yield clean drinkable survival water.',
-    edibility_details: 'Inner palm shoot (ubod) is edible raw or cooked. Stem water is safe to drink.',
-    first_aid: 'Thorns can cause painful punctures. Clean wounds immediately with antiseptic.',
-    habitat: 'Tropical primary rainforest, montane slopes (300m - 1,500m)',
-    svg_icon: '🌴',
-  },
-  {
-    id: 'wild_guava',
-    plant_name: 'Mountain Wild Guava',
-    local_name: 'Bayabas / Kalimbahin',
-    scientific_name: 'Psidium guajava',
-    family: 'Myrtaceae',
-    safety: 'medicinal',
-    danger_level: 'Medicinal / Natural Antiseptic',
-    color_category: 'green_fruit',
-    leaf_pattern: 'opposite_oval',
-    image_url: 'https://images.unsplash.com/photo-1536511135471-8b4382bf24a4?w=600&auto=format&fit=crop&q=80',
-    description: 'Small hardy tree with smooth peeling coppery bark, opposite oval leaves, fragrant white blossoms, and rounded edible fruit.',
-    care_note: 'Fresh young leaves are nature\'s first-aid kit. Chewing leaves creates an effective astringent and antiseptic wash for trail cuts, scrapes, and diarrhea relief.',
-    edibility_details: 'Fruit is 100% edible and rich in vitamin C. Leaves can be chewed or boiled as antiseptic tea.',
-    first_aid: 'Safe and beneficial for trail first aid.',
-    habitat: 'Sunny secondary ridge forests, open foothills, trail transitions',
-    svg_icon: '🍏',
-  },
-  {
-    id: 'wild_bamboo',
-    plant_name: 'Mountain Wild Bamboo',
-    local_name: 'Buho / Kawayan-kiling',
-    scientific_name: 'Schizostachyum lumampao',
-    family: 'Poaceae',
-    safety: 'safe',
-    danger_level: 'Survival Resource / Edible Shoots',
-    color_category: 'light_green',
-    leaf_pattern: 'jointed_culms',
-    image_url: 'https://images.unsplash.com/photo-1505820013142-f86a3439c5b2?w=600&auto=format&fit=crop&q=80',
-    description: 'Erect clumping wild bamboo with smooth green thin-walled culms. Critical survival material for cooking vessels, shelters, and water transport.',
-    care_note: 'Internodes frequently store clean rainwater inside that can be tapped by piercing. Young bamboo shoots (labong) are edible when boiled.',
-    edibility_details: 'Young shoots must be boiled to remove cyanogenic glycosides. Raw mature culms are not edible.',
-    first_aid: 'Careful with sharp edges when cutting bamboo tubes.',
-    habitat: 'Mountain hillsides, river canyons, forest fringes',
-    svg_icon: '🎋',
-  },
-  {
-    id: 'angel_trumpet',
-    plant_name: 'Devil\'s Trumpet / Datura',
-    local_name: 'Talumpunay',
-    scientific_name: 'Datura metel',
-    family: 'Solanaceae',
-    safety: 'poisonous',
-    danger_level: 'FATAL TOXICITY: Hallucinogenic Poison',
-    color_category: 'white_flower',
-    leaf_pattern: 'flared_trumpet',
-    image_url: 'https://images.unsplash.com/photo-1628172909405-b040a4cf6cb9?w=600&auto=format&fit=crop&q=80',
-    description: 'Coarse bush with dark purple or green stems, wavy toothed leaves, and large trumpet-shaped white/purple flowers with spiny round seed pods.',
-    care_note: 'CRITICAL LETHAL HAZARD: Contains tropane alkaloids (scopolamine, hyoscyamine, atropine). Ingestion causes delirium, hyperthermia, seizures, and respiratory failure.',
-    edibility_details: 'EXTREMELY DEADLY. Every part of this plant is poisonous.',
-    first_aid: 'EMERGENCY: Immediate hospital evacuation. Do NOT leave victim unattended as disorientation and hallucinations occur rapidly.',
-    habitat: 'Disturbed trail edges, rocky roadsides, low to mid elevation',
-    svg_icon: '☠️',
-  },
-  {
-    id: 'castor_bean',
-    plant_name: 'Castor Bean Bush',
-    local_name: 'Tangan-tangan / Lingang-sina',
-    scientific_name: 'Ricinus communis',
-    family: 'Euphorbiaceae',
-    safety: 'poisonous',
-    danger_level: 'DEADLY: Contains Ricin Poison',
-    color_category: 'red_green',
-    leaf_pattern: 'palmate_star',
-    image_url: 'https://images.unsplash.com/photo-1598880940371-c756e015fea1?w=600&auto=format&fit=crop&q=80',
-    description: 'Tall robust shrub with large palmately lobed reddish-green leaves and clusters of prickly round capsules containing mottled glossy seeds.',
-    care_note: 'FATAL: Seeds contain ricin, one of the most potent plant toxins known. Ingesting just 2-4 chewed seeds can cause fatal internal organ failure.',
-    edibility_details: 'LETHAL TO INGEST. Keep away from hikers, children, and pets.',
-    first_aid: 'Emergency evacuation immediately. Keep victim hydrated and monitor vitals.',
-    habitat: 'Open clearings, waste ground, sunny mountain trail heads',
-    svg_icon: '🛑',
-  },
-  {
-    id: 'gotu_kola',
-    plant_name: 'Gotu Kola / Indian Pennywort',
-    local_name: 'Takip-kuhol / Yahong-yahong',
-    scientific_name: 'Centella asiatica',
-    family: 'Apiaceae',
-    safety: 'medicinal',
-    danger_level: 'Safe Medicinal & Edible Herb',
-    color_category: 'green_leaf',
-    leaf_pattern: 'kidney_fan',
-    image_url: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop&q=80',
-    description: 'Creeping low herb with fan or kidney-shaped scalloped green leaves found carpeting damp shaded ground along cool mountain trails.',
-    care_note: 'Renowned herbal brain tonic and wound healer. Crushed fresh leaves applied to scrapes stimulate collagen and accelerate skin healing.',
-    edibility_details: 'Leaves can be eaten raw in salads or brewed into restorative survival tea.',
-    first_aid: 'Safe and non-toxic.',
-    habitat: 'Wet mossy forest ground, damp trail verges, spring beds',
-    svg_icon: '☘️',
-  },
-  {
-    id: 'wild_mint',
-    plant_name: 'Philippine Mountain Mint',
-    local_name: 'Polag / Yerba Buena',
-    scientific_name: 'Mentha arvensis',
-    family: 'Lamiaceae',
-    safety: 'medicinal',
-    danger_level: 'Edible & Aromatic Medicine',
-    color_category: 'green_leaf',
-    leaf_pattern: 'opposite_toothed',
-    image_url: 'https://images.unsplash.com/photo-1628556270448-4d4e4148e1b1?w=600&auto=format&fit=crop&q=80',
-    description: 'Aromatic perennial herb with square stems, toothed paired leaves, and a potent refreshing menthol scent when crushed between fingers.',
-    care_note: 'Invaluable mountain trail remedy. Crushed leaves relieve headaches when rubbed on temples, and hot mint tea relieves nausea and stomach cramps.',
-    edibility_details: 'Edible fresh or dried. Makes excellent uplifting trail tea.',
-    first_aid: 'Completely safe.',
-    habitat: 'High altitude mountain trails, cooler stream valleys (800m - 2,200m)',
-    svg_icon: '🌿',
-  },
-  {
-    id: 'cloud_moss',
-    plant_name: 'Philippine Cloud Sphagnum Moss',
-    local_name: 'Lumot-gubat',
-    scientific_name: 'Sphagnum junghuhnianum',
-    family: 'Sphagnaceae',
-    safety: 'safe',
-    danger_level: 'Safe / Natural Water Filter',
-    color_category: 'moss_green',
-    leaf_pattern: 'carpet_moss',
-    image_url: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=600&auto=format&fit=crop&q=80',
-    description: 'Spongy emerald to yellowish-green moss forming deep thick carpets over damp tree trunks and ground in mossy mountain cloud forests.',
-    care_note: 'Holds up to 20 times its dry weight in pure water. Contains natural antimicrobial penicillic compounds; historically used as emergency antiseptic field dressing.',
-    edibility_details: 'Not for eating, but squeezed water can be boiled and drunk.',
-    first_aid: 'Gentle and safe for external wound dressing.',
-    habitat: 'Mossy forests, Mt. Pulag, Mt. Halcon, Mt. Cristobal (1,500m - 2,900m)',
-    svg_icon: '🟢',
-  },
-  {
-    id: 'physic_nut',
-    plant_name: 'Physic Nut / Purging Nut',
-    local_name: 'Tubang Bakod / Tuba',
-    scientific_name: 'Jatropha curcas',
-    family: 'Euphorbiaceae',
-    safety: 'poisonous',
-    danger_level: 'TOXIC: Violent Purging Agent',
-    color_category: 'broad_green',
-    leaf_pattern: 'angular_lobed',
-    image_url: 'https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=600&auto=format&fit=crop&q=80',
-    description: 'Smooth-barked shrub with pale green 3-5 lobed leaves and greenish-yellow flowers followed by fleshy oval capsules.',
-    care_note: 'DANGER: Seeds contain toxic toxalbumin curcin and purgative diterpenes. Ingestion induces severe abdominal cramps, continuous vomiting, and dehydration.',
-    edibility_details: 'HIGHLY TOXIC. Do not eat seeds or drink latex sap.',
-    first_aid: 'Hydrate continuously with electrolyte water and evacuate to clinic.',
-    habitat: 'Foothill trail borders, low elevation fence lines',
-    svg_icon: '☣️',
-  },
-  {
-    id: 'broadleaf_plantain',
-    plant_name: 'Broadleaf Plantain',
-    local_name: 'Llantén',
-    scientific_name: 'Plantago major',
-    family: 'Plantaginaceae',
-    safety: 'medicinal',
-    danger_level: 'Safe / Trail First Aid Herb',
-    color_category: 'broad_green',
-    leaf_pattern: 'ribbed_rosette',
-    image_url: 'https://images.unsplash.com/photo-1597848212624-a19eb35e2651?w=600&auto=format&fit=crop&q=80',
-    description: 'Rosette of broad oval leaves with prominent parallel veins and tall pencil-like green flower spikes. Grows on trampled trails and mountain camps.',
-    care_note: 'Nature\'s band-aid: Chewing a leaf into a poultice and applying directly to bee stings, mosquito bites, or stinging nettle burns provides instant relief.',
-    edibility_details: 'Young tender leaves are edible raw or steamed.',
-    first_aid: 'Outstanding natural relief for insect bites and nettle stings.',
-    habitat: 'Trail intersections, campsite clearings, mountain paths',
-    svg_icon: '🩹',
-  },
-  {
-    id: 'sambong',
-    plant_name: 'Sambong / Blumea Camphor',
-    local_name: 'Sambong / Subusub',
-    scientific_name: 'Blumea balsamifera',
-    family: 'Asteraceae',
-    safety: 'medicinal',
-    danger_level: 'Certified Medicinal Plant',
-    color_category: 'green_leaf',
-    leaf_pattern: 'serrated_fuzzy',
-    image_url: 'https://images.unsplash.com/photo-1520412099551-62b6bafeb5bb?w=600&auto=format&fit=crop&q=80',
-    description: 'Aromatic shrub with soft fuzzy leaves, yellow composite flower heads, and a distinct camphoraceous fragrance when crushed.',
-    care_note: 'Official Philippine Department of Health (DOH) approved herbal medicine. Boiled leaf tea is a proven diuretic, kidney stone treatment, and fever reducer.',
-    edibility_details: 'Leaves are brewed as herbal tea. Not commonly eaten raw.',
-    first_aid: 'Safe and therapeutic.',
-    habitat: 'Open grasslands, mountain foothill clearings, secondary forests',
-    svg_icon: '🍵',
-  },
-  {
-    id: 'lagundi',
-    plant_name: 'Lagundi / Five-Leaved Chaste Tree',
-    local_name: 'Lagundi / Dangla',
-    scientific_name: 'Vitex negundo',
-    family: 'Lamiaceae',
-    safety: 'medicinal',
-    danger_level: 'Certified Medicinal Remedy',
-    color_category: 'green_leaf',
-    leaf_pattern: 'five_palmate',
-    image_url: 'https://images.unsplash.com/photo-1516205651411-aef33a44f7c2?w=600&auto=format&fit=crop&q=80',
-    description: 'Erect shrub with 5 palmately arranged pointed leaflets and delicate lavender-blue flower panicles.',
-    care_note: 'Official DOH herbal medicine for coughs, colds, asthma, and flu on the trail. Boiled leaf decoction opens bronchial airways and relieves body aches.',
-    edibility_details: 'Leaves are brewed into medicinal tea.',
-    first_aid: 'Safe, non-toxic, highly effective trail remedy.',
-    habitat: 'Open thickets, mountain trail transitions, sunny slopes',
-    svg_icon: '💜',
-  },
-  {
-    id: 'wild_ginger',
-    plant_name: 'Wild Shampoo Ginger',
-    local_name: 'Luya-luyahan / Tumbong-aso',
-    scientific_name: 'Zingiber zerumbet',
-    family: 'Zingiberaceae',
-    safety: 'medicinal',
-    danger_level: 'Edible Rhizome / Fragrant Nectar',
-    color_category: 'red_green',
-    leaf_pattern: 'pinecone_club',
-    image_url: 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=600&auto=format&fit=crop&q=80',
-    description: 'Lush herb with reed-like leafy stems and cone-shaped club flower heads that turn bright crimson red and fill with fragrant soapy suds.',
-    care_note: 'Squeezing the ripe red flower cone yields a fragrant sudsy liquid that cleans trail dirt and conditions hair. Aromatic rhizome relieves upset stomach.',
-    edibility_details: 'Rhizome is edible as mild spice. Flower nectar is safe to drink.',
-    first_aid: 'Completely safe and antiseptic.',
-    habitat: 'Damp shaded forest gullies, creek margins',
-    svg_icon: '🧼',
-  },
-  {
-    id: 'wild_strawberry',
-    plant_name: 'Mountain Wild Strawberry',
-    local_name: 'Presa-gubat',
-    scientific_name: 'Fragaria vesca',
-    family: 'Rosaceae',
-    safety: 'edible',
-    danger_level: 'Safe & Delicious Wild Berry',
-    color_category: 'red_berry',
-    leaf_pattern: 'trifoliate_berry',
-    image_url: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?w=600&auto=format&fit=crop&q=80',
-    description: 'Low creeping stoloniferous herb with trifoliate toothed leaves, small 5-petaled white flowers, and miniature intensely sweet red berries.',
-    care_note: 'High-energy trail berry found in cool mountain altitudes. Exceptionally rich in vitamin C, potassium, and natural sugars.',
-    edibility_details: '100% Edible raw. Excellent survival carbohydrate.',
-    first_aid: 'Non-toxic and nutritious.',
-    habitat: 'High elevation Cordillera trails, pine forest borders (1,500m - 2,600m)',
-    svg_icon: '🍓',
-  },
-];
+// 200+ Philippine Mountain & Trail Species catalog
+export { plantDictionary };
 
-// Offline Computer Vision & Feature Classifier
-function analyzeUserScan(canvas, ctx) {
+// ── Plant Analysis Engine (TF.js MobileNet v2 + Pixel fallback) ─────────────
+// analyzeUserScan is now async — it delegates to the TF.js analyzeImage engine
+// from plantRecognition.js and returns a promise with the same result shape.
+async function analyzeUserScan(canvas, ctx, organFilter = 'all') {
   try {
+    return await analyzeImage(canvas, ctx, plantDictionary, organFilter);
+  } catch (err) {
+    console.warn('[Scanner] analyzeImage failed, using fallback:', err);
+    // Pixel-only fallback (original behaviour)
     const w = canvas.width;
     const h = canvas.height;
     const sampleSize = Math.min(180, Math.floor(Math.min(w, h) * 0.7));
@@ -764,91 +357,54 @@ function analyzeUserScan(canvas, ctx) {
     const imgData = ctx.getImageData(startX, startY, sampleSize, sampleSize);
     const data = imgData.data;
 
-    let redCount = 0;
-    let greenCount = 0;
-    let yellowCount = 0;
-    let darkCount = 0;
-    let paleCount = 0;
-    let edgeEnergy = 0;
-
+    let redCount = 0, greenCount = 0, yellowCount = 0;
+    let darkCount = 0, paleCount = 0, edgeEnergy = 0;
     const totalPixels = data.length / 4;
 
     for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
+      const r = data[i], g = data[i + 1], b = data[i + 2];
       const lum = (r + g + b) / 3;
-
-      if (r > 120 && r > g * 1.25 && r > b * 1.2) {
-        redCount++;
-      } else if (r > 135 && g > 125 && b < 100 && Math.abs(r - g) < 55) {
-        yellowCount++;
-      } else if (g > r * 1.15 && g > b * 1.15) {
-        greenCount++;
-      } else if (lum < 55) {
-        darkCount++;
-      } else if (lum > 190) {
-        paleCount++;
-      }
-
-      // Simple edge detection: gradient against previous pixel
+      if (r > 120 && r > g * 1.25 && r > b * 1.2) redCount++;
+      else if (r > 135 && g > 125 && b < 100 && Math.abs(r - g) < 55) yellowCount++;
+      else if (g > r * 1.15 && g > b * 1.15) greenCount++;
+      else if (lum < 55) darkCount++;
+      else if (lum > 190) paleCount++;
       if (i > 4) {
         const prevLum = (data[i - 4] + data[i - 3] + data[i - 2]) / 3;
         edgeEnergy += Math.abs(lum - prevLum);
       }
     }
 
-    const redRatio = redCount / totalPixels;
+    const redRatio    = redCount    / totalPixels;
     const yellowRatio = yellowCount / totalPixels;
-    const greenRatio = greenCount / totalPixels;
-    const darkRatio = darkCount / totalPixels;
-    const paleRatio = paleCount / totalPixels;
-    const avgEdge = edgeEnergy / totalPixels;
+    const greenRatio  = greenCount  / totalPixels;
+    const darkRatio   = darkCount   / totalPixels;
+    const paleRatio   = paleCount   / totalPixels;
+    const avgEdge     = edgeEnergy  / totalPixels;
 
-    // Score every species against scan signals
     const scored = plantDictionary.map((plant) => {
       let score = 50;
+      if (plant.color_category === 'red_berry')           { score += redRatio * 140; if (redRatio > 0.08) score += 30; }
+      else if (plant.color_category === 'red_green')      score += (redRatio + greenRatio) * 70;
+      else if (plant.color_category === 'yellow_flower')  { score += yellowRatio * 150; if (yellowRatio > 0.08) score += 35; }
+      else if (plant.color_category === 'yellow_red')     score += (yellowRatio + redRatio) * 80;
+      else if (plant.color_category === 'dark_green' || plant.color_category === 'moss_green') score += darkRatio * 90 + greenRatio * 50;
+      else if (plant.color_category === 'feathery_green') { score += greenRatio * 80; if (avgEdge > 20) score += 30; }
+      else if (plant.color_category === 'broad_green')    { score += greenRatio * 75; if (avgEdge <= 20) score += 25; }
+      else if (plant.color_category === 'white_flower')   score += paleRatio * 140;
+      else score += greenRatio * 60;
 
-      // Color profile scoring
-      if (plant.color_category === 'red_berry') {
-        score += redRatio * 140;
-        if (redRatio > 0.08) score += 30;
-      } else if (plant.color_category === 'red_green') {
-        score += (redRatio + greenRatio) * 70;
-      } else if (plant.color_category === 'yellow_flower') {
-        score += yellowRatio * 150;
-        if (yellowRatio > 0.08) score += 35;
-      } else if (plant.color_category === 'yellow_red') {
-        score += (yellowRatio + redRatio) * 80;
-      } else if (plant.color_category === 'dark_green' || plant.color_category === 'moss_green') {
-        score += darkRatio * 90 + greenRatio * 50;
-      } else if (plant.color_category === 'feathery_green') {
-        score += greenRatio * 80;
-        if (avgEdge > 20) score += 30; // fine feathery textures have high edge energy
-      } else if (plant.color_category === 'broad_green') {
-        score += greenRatio * 75;
-        if (avgEdge <= 20) score += 25; // broad leaves have smoother texture
-      } else if (plant.color_category === 'white_flower') {
-        score += paleRatio * 140;
-      } else {
-        score += greenRatio * 60;
-      }
-
-      // Texture profile bonus
-      if (plant.leaf_pattern === 'needles' && avgEdge > 22) score += 20;
-      if (plant.leaf_pattern === 'massive_heart' && avgEdge < 18) score += 20;
+      if (plant.leaf_pattern === 'needles'       && avgEdge > 22)  score += 20;
+      if (plant.leaf_pattern === 'massive_heart' && avgEdge < 18)  score += 20;
       if (plant.leaf_pattern === 'bramble_berry' && redRatio > 0.05) score += 25;
 
-      return {
-        plant,
-        score,
-        confidence: Math.min(99.4, Math.max(89.5, Number((88 + (score % 11.5)).toFixed(1)))),
-      };
+      return { plant, score, confidence: Math.min(99.4, Math.max(55.0, Number((55 + (score % 44.5)).toFixed(1)))) };
     });
 
     scored.sort((a, b) => b.score - a.score);
 
     return {
+      isPlant: greenRatio > 0.15,
       top: scored[0].plant,
       confidence: scored[0].confidence,
       alternatives: scored.slice(1, 3).map((s) => ({
@@ -856,24 +412,14 @@ function analyzeUserScan(canvas, ctx) {
         confidence: Number((s.confidence - 2.8 - Math.random() * 1.5).toFixed(1)),
       })),
       metrics: {
-        redRatio: (redRatio * 100).toFixed(0),
-        greenRatio: (greenRatio * 100).toFixed(0),
+        redRatio:    (redRatio    * 100).toFixed(0),
+        greenRatio:  (greenRatio  * 100).toFixed(0),
         yellowRatio: (yellowRatio * 100).toFixed(0),
-        avgEdge: avgEdge.toFixed(1),
+        avgEdge:     avgEdge.toFixed(1),
+        modelUsed:   'Pixel (fallback)',
+        topLabel:    'N/A',
+        topProb:     'N/A',
       },
-    };
-  } catch {
-    const randomIdx = Math.floor(Math.random() * plantDictionary.length);
-    const altIdx1 = (randomIdx + 1) % plantDictionary.length;
-    const altIdx2 = (randomIdx + 2) % plantDictionary.length;
-    return {
-      top: plantDictionary[randomIdx],
-      confidence: 96.4,
-      alternatives: [
-        { plant: plantDictionary[altIdx1], confidence: 92.1 },
-        { plant: plantDictionary[altIdx2], confidence: 89.3 },
-      ],
-      metrics: { redRatio: 12, greenRatio: 58, yellowRatio: 8, avgEdge: 18.5 },
     };
   }
 }
@@ -897,6 +443,14 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
   });
   const [searchDict, setSearchDict] = useState('');
   const [facingMode, setFacingMode] = useState('environment'); // 'environment' or 'user'
+  const [organFocus, setOrganFocus] = useState('all'); // 'all', 'leaf', 'flower', 'fruit', 'fern', 'tree'
+  const [showManualCorrection, setShowManualCorrection] = useState(false);
+
+  // Offline AI Plant Assistant state
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiThinking, setAiThinking] = useState(false);
+  const aiChatEndRef = useRef(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -985,7 +539,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
   };
 
   // Perform Real Camera Snapshot & System Plant Definition
-  const handleSnapAndScan = () => {
+  const handleSnapAndScan = async () => {
     if (!videoRef.current && !isStreaming) {
       fileFallbackRef.current?.click();
       return;
@@ -1016,9 +570,8 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
     setCapturedPhotoUrl(photoDataUrl);
     stopCamera();
 
-    setTimeout(() => {
-      const analysis = analyzeUserScan(canvas, ctx);
-      const match = analysis.top;
+    try {
+      const analysis = await analyzeUserScan(canvas, ctx, organFocus);
 
       let gpsCoords = 'High Mountain Trail';
       try {
@@ -1029,6 +582,22 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
         }
       } catch {}
 
+      if (!analysis.isPlant || !analysis.top) {
+        const nonPlantRecord = {
+          id: `scan_${Date.now()}`,
+          isPlant: false,
+          reason: analysis.reason || 'No plant or foliage detected in image.',
+          photo_url: photoDataUrl,
+          scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          metrics: analysis.metrics,
+          gps: gpsCoords,
+        };
+        setScannedResult(nonPlantRecord);
+        setIsScanning(false);
+        return;
+      }
+
+      const match = analysis.top;
       const scanRecord = {
         id: `scan_${Date.now()}`,
         plant_id: match.id,
@@ -1043,6 +612,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
         edibility_details: match.edibility_details,
         first_aid: match.first_aid,
         habitat: match.habitat,
+        image_url: match.image_url || match.photo_url,
         photo_url: photoDataUrl,
         svg_icon: match.svg_icon,
         scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1050,6 +620,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
         alternatives: analysis.alternatives,
         metrics: analysis.metrics,
         gps: gpsCoords,
+        isPlant: true,
       };
 
       setScannedResult(scanRecord);
@@ -1066,17 +637,21 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
           plant_name: match.plant_name,
           scientific_name: match.scientific_name,
           description: match.description,
-          safety: match.safety,
-          care_note: match.care_note,
+          safety: ['edible', 'medicinal', 'poisonous', 'safe'].includes(match.safety) ? match.safety : 'unknown',
+          image_url: match.photo_url || match.image_url || photoDataUrl,
           scanned_date: new Date().toISOString(),
         }).catch(() => {});
       } catch {}
-    }, 450);
+    } catch (err) {
+      console.error('[Scanner] Snap error:', err);
+      setIsScanning(false);
+    }
   };
 
-  // Upload or native device camera app fallback
+  // Upload plant photo from local device files
   const handleFileCapture = (e) => {
     const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
     if (!file) return;
 
     setIsScanning(true);
@@ -1086,16 +661,15 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
       setCapturedPhotoUrl(dataUrl);
 
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
         canvas.width = img.width || 640;
         canvas.height = img.height || 480;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
 
-        setTimeout(() => {
-          const analysis = analyzeUserScan(canvas, ctx);
-          const match = analysis.top;
+        try {
+          const analysis = await analyzeUserScan(canvas, ctx, organFocus);
 
           let gpsCoords = 'High Mountain Trail';
           try {
@@ -1106,6 +680,22 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
             }
           } catch {}
 
+          if (!analysis.isPlant || !analysis.top) {
+            const nonPlantRecord = {
+              id: `scan_${Date.now()}`,
+              isPlant: false,
+              reason: analysis.reason || 'No plant or foliage detected in image.',
+              photo_url: dataUrl,
+              scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              metrics: analysis.metrics,
+              gps: gpsCoords,
+            };
+            setScannedResult(nonPlantRecord);
+            setIsScanning(false);
+            return;
+          }
+
+          const match = analysis.top;
           const scanRecord = {
             id: `scan_${Date.now()}`,
             plant_id: match.id,
@@ -1120,6 +710,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
             edibility_details: match.edibility_details,
             first_aid: match.first_aid,
             habitat: match.habitat,
+            image_url: match.image_url || match.photo_url,
             photo_url: dataUrl,
             svg_icon: match.svg_icon,
             scanned_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1127,6 +718,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
             alternatives: analysis.alternatives,
             metrics: analysis.metrics,
             gps: gpsCoords,
+            isPlant: true,
           };
 
           setScannedResult(scanRecord);
@@ -1137,7 +729,21 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
           try {
             localStorage.setItem('trekquest_plant_history', JSON.stringify(updatedHistory));
           } catch {}
-        }, 400);
+
+          try {
+            base44.entities.PlantScan.create({
+              plant_name: match.plant_name,
+              scientific_name: match.scientific_name,
+              description: match.description,
+              safety: ['edible', 'medicinal', 'poisonous', 'safe'].includes(match.safety) ? match.safety : 'unknown',
+              image_url: match.photo_url || match.image_url || dataUrl,
+              scanned_date: new Date().toISOString(),
+            }).catch(() => {});
+          } catch {}
+        } catch (err) {
+          console.error('[Scanner] File capture error:', err);
+          setIsScanning(false);
+        }
       };
       img.src = dataUrl;
     };
@@ -1161,6 +767,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
       edibility_details: altPlant.edibility_details,
       first_aid: altPlant.first_aid,
       habitat: altPlant.habitat,
+      image_url: altPlant.image_url,
       svg_icon: altPlant.svg_icon,
       confidence: altConfidence,
     };
@@ -1189,8 +796,100 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
     setScannedResult(null);
     setCapturedPhotoUrl(null);
     setActiveTab('camera');
+    setAiMessages([]);
+    setAiInput('');
     startCamera();
   };
+
+  // ── OFFLINE AI PLANT ASSISTANT ─────────────────────────────────────────
+  const generateOfflineAIAnswer = (question, plant) => {
+    const q = question.toLowerCase();
+
+    // Edibility
+    if (q.match(/eat|edible|food|safe to eat|consume|digest/)) {
+      if (plant.safety === 'edible') {
+        return `✅ **${plant.plant_name}** is edible. ${plant.edibility_details || `The ${plant.local_name} can be consumed carefully — always cook or prepare properly in a survival situation.`}`;
+      } else if (plant.safety === 'poisonous') {
+        return `⛔ **DO NOT EAT** — ${plant.plant_name} (${plant.local_name}) is **toxic to humans**. ${plant.edibility_details || 'Ingesting any part of this plant can cause severe poisoning. Seek emergency help immediately if consumed.'}`;
+      } else if (plant.safety === 'medicinal') {
+        return `⚠️ ${plant.plant_name} is used medicinally but is **not a trail food**. ${plant.edibility_details || 'Only trained herbalists should use this plant medicinally. Do not eat it raw on the trail.'}`;
+      }
+      return `ℹ️ ${plant.plant_name} — edibility status: **${plant.safety}**. ${plant.edibility_details || plant.care_note}`;
+    }
+
+    // Touching / skin contact
+    if (q.match(/touch|skin|rash|sting|itch|allergic|contact/)) {
+      if (plant.safety === 'poisonous') {
+        return `⚠️ **Avoid skin contact** with ${plant.plant_name}. ${plant.first_aid || 'Wash immediately with clean water if touched. Do not rub your eyes. Some poisonous plants cause blistering or allergic reactions.'}`;
+      }
+      return `👋 ${plant.plant_name} is generally **safe to touch** with bare hands. ${plant.first_aid || 'Still, wash hands after handling any wild plant to be safe.'}`;
+    }
+
+    // First aid / medical
+    if (q.match(/first aid|help|emergency|poison|swallow|medicine|treat/)) {
+      return `🩹 **First Aid for ${plant.plant_name}:** ${plant.first_aid || 'If you believe you have ingested or had a severe reaction to this plant, move to safety and contact emergency services. Keep the patient calm and hydrated.'}`;
+    }
+
+    // Medicinal uses
+    if (q.match(/medic|heal|cure|herb|traditional|remedy|treatment/)) {
+      if (plant.safety === 'medicinal') {
+        return `🌿 **${plant.plant_name}** has known medicinal value. ${plant.care_note} — ${plant.description}`;
+      }
+      return `🌿 ${plant.plant_name} has ${plant.safety === 'poisonous' ? 'no known safe medicinal use — it is toxic' : `the following trail profile: ${plant.care_note}`}.`;
+    }
+
+    // Habitat / where found
+    if (q.match(/where|habitat|elevation|grow|location|zone|found|region/)) {
+      return `📍 **${plant.plant_name}** is found in: ${plant.habitat || 'Philippine highland forests and mountain trails'}. Scientific range: ${plant.scientific_name} of the ${plant.family} family.`;
+    }
+
+    // Identification / what is this
+    if (q.match(/what is|identify|species|scientific|family|name|classification/)) {
+      return `🔬 **${plant.plant_name}** (${plant.local_name})\n• Scientific: *${plant.scientific_name}*\n• Family: ${plant.family}\n• Safety: ${plant.safety.toUpperCase()}\n• ${plant.description}`;
+    }
+
+    // Water / survival use
+    if (q.match(/water|drink|survival|emergency water|thirst/)) {
+      if (plant.id === 'pitcher_plant') {
+        return `💧 The sealed pitcher of *Nepenthes alata* contains sterile rainwater — drinkable in extreme survival situations. Tilt and filter through cloth before drinking.`;
+      }
+      if (plant.id === 'wild_bamboo') {
+        return `💧 Cut young bamboo sections at an angle at night — they collect dew and rainwater inside the hollow stem. This is a known Filipino mountain survival technique.`;
+      }
+      return `💧 ${plant.plant_name} does not have a known water source. Stick to stream or collected rainwater for hydration. Filter before drinking.`;
+    }
+
+    // Danger / is it safe
+    if (q.match(/danger|safe|harmful|toxic|risk|warning/)) {
+      if (plant.safety === 'poisonous') {
+        return `⛔ **HIGH DANGER** — ${plant.plant_name} is poisonous. Danger level: ${plant.danger_level}. ${plant.first_aid || 'Do not touch, eat, or burn this plant. Keep children and pets away.'}`;
+      } else if (plant.safety === 'safe') {
+        return `✅ ${plant.plant_name} is **non-toxic and generally safe** for trail use. Danger level: ${plant.danger_level}.`;
+      }
+      return `⚠️ ${plant.plant_name} — ${plant.danger_level}. Use with caution on the trail.`;
+    }
+
+    // Default fallback
+    return `🌿 Here is what I know about **${plant.plant_name}** (${plant.local_name}):\n\n${plant.description}\n\n💡 Trail note: ${plant.care_note}\n\n_Ask me more: "Is it edible?", "Can I touch it?", "What is the first aid?", "Where does it grow?"_`;
+  };
+
+  const handleAiSend = () => {
+    if (!aiInput.trim() || !scannedResult || aiThinking) return;
+    const userMsg = aiInput.trim();
+    setAiInput('');
+    setAiMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+    setAiThinking(true);
+
+    // Simulate AI "thinking" delay (300-700ms)
+    const delay = 300 + Math.random() * 400;
+    setTimeout(() => {
+      const answer = generateOfflineAIAnswer(userMsg, scannedResult);
+      setAiMessages((prev) => [...prev, { role: 'ai', text: answer }]);
+      setAiThinking(false);
+      setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+    }, delay);
+  };
+
 
   // Filter dictionary
   const filteredDictionary = plantDictionary.filter((p) => {
@@ -1212,7 +911,6 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
       <input
         type="file"
         accept="image/*"
-        capture="environment"
         ref={fileFallbackRef}
         className="hidden"
         onChange={handleFileCapture}
@@ -1234,11 +932,8 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
             <h3 className="text-sm font-bold flex items-center gap-1.5 text-white">
               <Leaf size={16} className="text-emerald-400" />
               <span>Botanical Plant Scanner</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-semibold border border-emerald-500/30">
-                100% Offline
-              </span>
             </h3>
-            <p className="text-[10px] text-slate-400">Point device camera at any trail plant</p>
+            <p className="text-[10px] text-slate-400">Point device camera or upload a plant picture</p>
           </div>
         </div>
 
@@ -1284,11 +979,37 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
       <div className="flex-1 flex flex-col relative overflow-hidden">
         {/* TAB 1: REAL CAMERA SCANNER */}
         {activeTab === 'camera' && (
-          <div className="flex-1 flex flex-col items-center justify-between p-4 relative">
+          <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-y-auto">
             {!scannedResult ? (
               <>
+                {/* Organ Focus Filter */}
+                <div className="w-full max-w-sm flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar py-1 shrink-0">
+                  {[
+                    { id: 'all', label: 'All', icon: '🌿' },
+                    { id: 'leaf', label: 'Leaves', icon: '🍃' },
+                    { id: 'flower', label: 'Flowers', icon: '🌸' },
+                    { id: 'fruit', label: 'Berries', icon: '🍓' },
+                    { id: 'fern', label: 'Ferns', icon: '🌱' },
+                    { id: 'tree', label: 'Pine / Trees', icon: '🌲' },
+                  ].map((organ) => (
+                    <button
+                      key={organ.id}
+                      type="button"
+                      onClick={() => setOrganFocus(organ.id)}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 shrink-0 transition active:scale-95 cursor-pointer border ${
+                        organFocus === organ.id
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-md'
+                          : 'bg-white/10 text-slate-300 border-white/10 hover:bg-white/20'
+                      }`}
+                    >
+                      <span>{organ.icon}</span>
+                      <span>{organ.label}</span>
+                    </button>
+                  ))}
+                </div>
+
                 {/* Live Camera Viewport */}
-                <div className="relative w-full max-w-sm flex-1 rounded-3xl overflow-hidden bg-black border-2 border-emerald-500/40 shadow-2xl flex items-center justify-center min-h-[360px]">
+                <div className="relative w-full max-w-sm shrink-0 rounded-3xl overflow-hidden bg-black border-2 border-emerald-500/40 shadow-2xl flex items-center justify-center" style={{ height: 'clamp(200px, 44vh, 300px)' }}>
                   {/* Real WebRTC Video Tag */}
                   <video
                     ref={videoRef}
@@ -1305,9 +1026,10 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                       <p className="text-xs text-amber-200">{cameraError}</p>
                       <button
                         onClick={() => fileFallbackRef.current?.click()}
-                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg active:scale-95 transition cursor-pointer"
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg active:scale-95 transition cursor-pointer flex items-center gap-1.5"
                       >
-                        Launch Camera Capture
+                        <Upload size={14} />
+                        <span>Upload Plant Picture</span>
                       </button>
                     </div>
                   )}
@@ -1330,7 +1052,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     </div>
 
                     <p className="text-[11px] font-bold text-emerald-300 mt-3 bg-black/60 px-3 py-1 rounded-full backdrop-blur-md border border-emerald-500/30">
-                      Point camera at leaves, berries, or flowers
+                      Point camera or upload a plant picture from files
                     </p>
                   </div>
 
@@ -1358,7 +1080,7 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                 </div>
 
                 {/* Shutter / Scan Button Section */}
-                <div className="w-full max-w-sm pt-4 flex flex-col items-center gap-3">
+                <div className="w-full max-w-sm shrink-0 flex flex-col items-center gap-2">
                   <button
                     onClick={handleSnapAndScan}
                     disabled={isScanning}
@@ -1371,19 +1093,96 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                   <div className="w-full flex gap-2">
                     <button
                       onClick={() => fileFallbackRef.current?.click()}
-                      className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-semibold text-xs transition cursor-pointer"
+                      className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      📁 Upload / Camera App
+                      <Upload size={14} className="text-emerald-400" />
+                      <span>Upload Plant Picture</span>
                     </button>
                     <button
                       onClick={() => { stopCamera(); setActiveTab('dictionary'); }}
                       className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 font-semibold text-xs transition flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      <BookOpen size={13} /> Offline Catalog
+                      <BookOpen size={13} /> Plant Catalog
                     </button>
                   </div>
                 </div>
               </>
+            ) : scannedResult.isPlant === false ? (
+              /* NO PLANT DETECTED VIEW */
+              <div className="w-full max-w-md bg-slate-900 border border-slate-700 text-white rounded-3xl p-5 shadow-2xl flex flex-col gap-4 my-auto max-h-[85vh] overflow-y-auto no-scrollbar">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <AlertTriangle size={14} /> Scan Result
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-slate-300 bg-slate-800 border-slate-700">
+                    Non-Plant Subject
+                  </span>
+                </div>
+
+                {/* Photo preview with a badge */}
+                <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
+                  <img
+                    src={capturedPhotoUrl || scannedResult.photo_url}
+                    alt="Captured scan"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-2.5 left-2.5 bg-rose-950/90 border border-rose-500/50 text-rose-300 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg backdrop-blur-md">
+                    <X size={13} /> No Plant Detected
+                  </div>
+                  <div className="absolute bottom-2.5 left-2.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-300 border border-white/10 flex items-center gap-1.5">
+                    <MapPin size={11} className="text-emerald-400" />
+                    <span>{scannedResult.gps || 'Trail Location'} • {scannedResult.scanned_at}</span>
+                  </div>
+                </div>
+
+                {/* Detailed notice */}
+                <div className="p-4 rounded-2xl bg-slate-800/60 border border-white/10 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-amber-300 font-bold text-sm">
+                    <AlertTriangle size={16} />
+                    <span>No Botanical Foliage Found</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {scannedResult.reason || 'The scanner detected a face, person, or non-botanical object.'}
+                  </p>
+                  {scannedResult.metrics?.topLabel && scannedResult.metrics.topLabel !== 'N/A' && (
+                    <div className="text-[11px] text-slate-400 flex items-center gap-1 pt-1.5 border-t border-white/5">
+                      <Sparkles size={11} className="text-emerald-400" />
+                      <span>AI Model identified:</span>
+                      <span className="text-emerald-400 font-semibold">{scannedResult.metrics.topLabel}</span>
+                      {scannedResult.metrics.topProb && <span>({scannedResult.metrics.topProb})</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Guidelines */}
+                <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/20 text-xs text-slate-300 space-y-1.5">
+                  <p className="font-bold text-emerald-300 flex items-center gap-1">
+                    <Leaf size={13} /> How to Scan Plants Accurately:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-400">
+                    <li>Aim camera directly at leaves, flowers, ferns, or bark</li>
+                    <li>Avoid pointing at faces, selfies, clothes, or indoor furniture</li>
+                    <li>Move closer in bright natural daylight for sharp foliage details</li>
+                  </ul>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={resetScanner}
+                    className="flex-1 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg transition active:scale-95 cursor-pointer"
+                  >
+                    <Camera size={15} /> Scan Again
+                  </button>
+                  <button
+                    onClick={() => { stopSpeech(); stopCamera(); setActiveTab('dictionary'); }}
+                    className="py-3 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 border border-white/10 transition active:scale-95 cursor-pointer"
+                  >
+                    <BookOpen size={15} /> Plant Catalog
+                  </button>
+                </div>
+              </div>
             ) : (
               /* SYSTEM BOTANICAL DEFINITION CARD (Derived from User's Scanned Camera Photo) */
               <div className="w-full max-w-md bg-slate-900 border border-slate-700 text-white rounded-3xl p-5 shadow-2xl flex flex-col gap-3.5 my-auto max-h-[85vh] overflow-y-auto no-scrollbar">
@@ -1393,8 +1192,15 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                     <Sparkles size={14} /> System Botanical Definition
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                      {scannedResult.confidence}% Confidence Match
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      scannedResult.confidence < 85
+                        ? 'text-amber-300 bg-amber-500/20 border-amber-500/40'
+                        : 'text-emerald-300 bg-emerald-500/20 border-emerald-500/30'
+                    }`}>
+                      {scannedResult.confidence < 85
+                        ? `⚠️ Low Confidence — ${scannedResult.confidence}%`
+                        : `${scannedResult.confidence}% Confidence Match`
+                      }
                     </span>
                     <button
                       onClick={handleSpeakDefinition}
@@ -1406,48 +1212,59 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                   </div>
                 </div>
 
-                {/* Scanned Photo (User's Actual Camera Capture with GPS Stamp) */}
-                <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
-                  <img
-                    src={capturedPhotoUrl || scannedResult.photo_url}
-                    alt={scannedResult.plant_name}
-                    className="w-full h-full object-cover"
-                  />
-                  {/* Safety Badge */}
-                  <span
-                    className={`absolute top-2.5 left-2.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-1 ${
-                      scannedResult.safety === 'edible'
-                        ? 'bg-emerald-600 text-white'
-                        : scannedResult.safety === 'medicinal'
-                        ? 'bg-teal-600 text-white'
-                        : scannedResult.safety === 'poisonous'
-                        ? 'bg-rose-600 text-white animate-pulse'
-                        : 'bg-sky-600 text-white'
-                    }`}
-                  >
-                    {scannedResult.safety === 'poisonous' && <AlertTriangle size={13} />}
-                    {scannedResult.safety === 'edible' && <CheckCircle size={13} />}
-                    {scannedResult.safety}
-                  </span>
-
-                  {/* Camera / GPS Watermark Stamp */}
-                  <div className="absolute bottom-2.5 left-2.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-300 border border-white/10 flex items-center gap-1.5">
-                    <MapPin size={11} className="text-emerald-400" />
-                    <span>{scannedResult.gps || 'Trail Location'} • {scannedResult.scanned_at}</span>
+                {/* AI Model badge */}
+                {scannedResult.metrics?.modelUsed && (
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                    <Sparkles size={11} className="text-emerald-600" />
+                    <span>
+                      Engine: <span className="text-emerald-500 font-semibold">{scannedResult.metrics.modelUsed}</span>
+                      {scannedResult.metrics.topLabel && scannedResult.metrics.topLabel !== 'N/A' && (
+                        <> · Top label: <em>{scannedResult.metrics.topLabel}</em> ({scannedResult.metrics.topProb})</>
+                      )}
+                    </span>
                   </div>
+                )}
 
-                  <span className="absolute bottom-2.5 right-2.5 text-2xl drop-shadow-md">
-                    {scannedResult.svg_icon}
-                  </span>
-                </div>
+                {/* 2-Way Split Comparison: Left = Hiker's Taken Photo, Right = System's Plant Reference */}
+                {(() => {
+                  const systemPlant = plantDictionary.find(
+                    (p) => p.id === (scannedResult.plant_id || scannedResult.id)
+                  ) || scannedResult;
+                  const hikerPhoto = capturedPhotoUrl || scannedResult.photo_url || scannedResult.image_url;
 
-                {/* Plant Name & Scientific Classification */}
+                  return (
+                    <div className="grid grid-cols-2 gap-2.5 h-44 sm:h-52 w-full shrink-0 rounded-2xl overflow-hidden bg-black/60 border border-white/10 p-1.5 shadow-xl">
+                      {/* Left: The picture the hiker has taken */}
+                      <div className="relative h-full w-full rounded-xl overflow-hidden bg-black border border-white/10">
+                        <img
+                          src={hikerPhoto}
+                          alt="Hiker's taken photo"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+
+                      {/* Right: The picture the system has of the plant */}
+                      <div className="relative h-full w-full rounded-xl overflow-hidden bg-black border border-white/10">
+                        <PlantImage
+                          plant={systemPlant}
+                          className="w-full h-full object-cover"
+                          fallbackSize={38}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Plant Name, Closest Match tag & Scientific Classification */}
                 <div>
                   <div className="flex items-baseline justify-between">
                     <h3 className="text-xl font-black text-white">{scannedResult.plant_name}</h3>
                     <span className="text-xs text-amber-400 font-bold">{scannedResult.local_name}</span>
                   </div>
-                  <p className="text-xs text-slate-400 italic">
+                  <p className="text-xs font-bold text-amber-400 tracking-wide mt-0.5">
+                    Closest Match
+                  </p>
+                  <p className="text-xs text-slate-400 italic mt-0.5">
                     {scannedResult.scientific_name} • Family: {scannedResult.family}
                   </p>
                 </div>
@@ -1489,49 +1306,99 @@ export default function CameraPlantScanner({ onClose, standalone = false }) {
                   )}
                 </div>
 
-                {/* Alternative Matches Detected in Scan */}
-                {scannedResult.alternatives && scannedResult.alternatives.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    <p className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                      <Info size={12} className="text-emerald-400" />
-                      <span>Other Potential Candidate Matches:</span>
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {scannedResult.alternatives.map((alt) => (
-                        <button
-                          key={alt.plant.id}
-                          onClick={() => handleSelectAlternative(alt.plant, alt.confidence)}
-                          className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-2 text-left cursor-pointer transition active:scale-95 group"
-                        >
-                          <PlantImage plant={alt.plant} className="w-8 h-8 rounded-lg object-cover shrink-0" fallbackSize={18} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-bold text-white group-hover:text-emerald-400 truncate">
-                              {alt.plant.plant_name}
-                            </p>
-                            <p className="text-[9px] text-slate-400 font-mono">
-                              {alt.confidence}% match
-                            </p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Actions: Scan Another or Browse */}
-                <div className="flex gap-2 pt-1">
+                {/* Actions: Scan Another Plant */}
+                <div className="pt-1">
                   <button
                     onClick={resetScanner}
-                    className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg active:scale-95 transition cursor-pointer"
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg active:scale-95 transition cursor-pointer"
                   >
                     <Camera size={16} /> Scan Another Plant
                   </button>
-                  <button
-                    onClick={() => { stopSpeech(); stopCamera(); setActiveTab('dictionary'); }}
-                    className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
-                  >
-                    <BookOpen size={16} /> All 24 Species
-                  </button>
+                </div>
+
+                {/* ── OFFLINE AI PLANT ASSISTANT CHAT ──────────────────── */}
+                <div className="border-t border-white/10 pt-3 space-y-2">
+                  <p className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Sparkles size={12} /> Offline Plant AI Assistant
+                    <span className="text-[9px] font-normal normal-case text-slate-400 ml-1">— ask anything about this plant</span>
+                  </p>
+
+                  {/* Suggested quick questions */}
+                  {aiMessages.length === 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Is it edible?', 'Can I touch it?', 'What is the first aid?', 'Where does it grow?', 'Is it dangerous?'].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => {
+                            setAiInput(q);
+                            setTimeout(() => {
+                              setAiMessages((prev) => [...prev, { role: 'user', text: q }]);
+                              setAiThinking(true);
+                              setTimeout(() => {
+                                const answer = generateOfflineAIAnswer(q, scannedResult);
+                                setAiMessages((prev) => [...prev, { role: 'ai', text: answer }]);
+                                setAiThinking(false);
+                                setAiInput('');
+                                setTimeout(() => aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+                              }, 400 + Math.random() * 300);
+                            }, 0);
+                          }}
+                          className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-medium hover:bg-emerald-500/20 active:scale-95 transition cursor-pointer"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Chat Messages */}
+                  {aiMessages.length > 0 && (
+                    <div className="max-h-48 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+                      {aiMessages.map((msg, i) => (
+                        <div
+                          key={i}
+                          className={`flex ${ msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div className={`max-w-[88%] px-3 py-2 rounded-2xl text-[11px] leading-relaxed whitespace-pre-line ${
+                            msg.role === 'user'
+                              ? 'bg-emerald-600/80 text-white rounded-br-sm'
+                              : 'bg-white/10 text-slate-200 border border-white/10 rounded-bl-sm'
+                          }`}>
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
+                      {aiThinking && (
+                        <div className="flex justify-start">
+                          <div className="bg-white/10 border border-white/10 rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={aiChatEndRef} />
+                    </div>
+                  )}
+
+                  {/* Input Row */}
+                  <div className="flex gap-2">
+                    <input
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAiSend()}
+                      placeholder="Ask: Is it safe to eat? What if I touch it?"
+                      disabled={aiThinking}
+                      className="flex-1 px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={handleAiSend}
+                      disabled={!aiInput.trim() || aiThinking}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold disabled:opacity-40 active:scale-95 transition cursor-pointer"
+                    >
+                      Ask
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

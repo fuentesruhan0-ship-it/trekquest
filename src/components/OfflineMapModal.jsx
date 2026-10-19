@@ -13,7 +13,6 @@ import {
   getSavedOfflineRegions,
   saveOfflineRegion,
   deleteOfflineRegion,
-  getRouteCorridorBounds,
 } from '@/lib/offlineMapManager';
 
 export default function OfflineMapModal({
@@ -25,8 +24,7 @@ export default function OfflineMapModal({
   onJumpToBounds = () => {},
 }) {
   const [activeTab, setActiveTab] = useState('download'); // 'download', 'presets', 'saved'
-  const [downloadTarget, setDownloadTarget] = useState('current'); // 'current', 'route'
-  const [selectedLayers, setSelectedLayers] = useState(['satellite', 'topo']);
+  const [selectedLayers, setSelectedLayers] = useState(['topo', 'streets', 'satellite']);
   const [zoomDetail, setZoomDetail] = useState('standard'); // 'standard' (13-15), 'deep' (13-16)
   
   // Download progress state
@@ -64,25 +62,17 @@ export default function OfflineMapModal({
   useEffect(() => {
     if (isOpen) {
       refreshStats();
-      if (destination || (routePoints && routePoints.length >= 2)) {
-        setDownloadTarget('route');
-        setCustomName(destination ? `Trail to ${destination.name}` : 'Planned Trail Route');
-      } else {
-        setDownloadTarget('current');
-        setCustomName('Visible Trail Area');
-      }
+      setCustomName(destination ? `Trail to ${destination.name}` : 'Visible Trail Area');
     }
-  }, [isOpen, destination, routePoints]);
+  }, [isOpen, destination]);
 
   if (!isOpen) return null;
 
-  // Compute bounding box for download
-  const computedBounds = downloadTarget === 'route' && routePoints.length > 0
-    ? getRouteCorridorBounds(routePoints, 0.02)
-    : currentBounds;
+  // Compute bounding box for download from current map bounds
+  const computedBounds = currentBounds;
 
-  const minZ = 13;
-  const maxZ = zoomDetail === 'deep' ? 16 : 15;
+  const minZ = 11;
+  const maxZ = zoomDetail === 'deep' ? 17 : 16;
   const calculatedUrls = computedBounds
     ? generateTileUrls(computedBounds, minZ, maxZ, selectedLayers)
     : [];
@@ -116,7 +106,7 @@ export default function OfflineMapModal({
       );
 
       // Save region metadata
-      const regName = customName.trim() || (downloadTarget === 'route' ? 'Trail Corridor' : 'Visible Trail Area');
+      const regName = customName.trim() || (destination ? `Trail to ${destination.name}` : 'Visible Trail Area');
       saveOfflineRegion({
         name: regName,
         tileCount: result.completed,
@@ -126,6 +116,7 @@ export default function OfflineMapModal({
         layers: selectedLayers,
       });
 
+      window.dispatchEvent(new Event('offline-maps-updated'));
       setDownloadSuccess(`🎉 ${result.completed} tiles saved! 100% ready for offline hiking.`);
       await refreshStats();
     } catch (err) {
@@ -144,11 +135,11 @@ export default function OfflineMapModal({
     }
   };
 
-  // Download a Preset Philippine Mountain Trail
+  // Download a Preset Philippine Mountain Trail (includes Outdoor, Topo, Satellite)
   const handleDownloadPreset = async (preset) => {
     if (isDownloading) return;
     setPresetStatus((prev) => ({ ...prev, [preset.id]: 'downloading' }));
-    const urls = generateTileUrls(preset.bounds, 13, 16, ['satellite', 'topo']);
+    const urls = generateTileUrls(preset.bounds, 11, 16, ['topo', 'streets', 'satellite']);
 
     abortControllerRef.current = new AbortController();
     try {
@@ -166,10 +157,11 @@ export default function OfflineMapModal({
         tileCount: result.completed,
         estimatedMb: parseFloat(((result.completed * 22) / 1024).toFixed(1)),
         bounds: preset.bounds,
-        zoomLevels: '13-16',
+        zoomLevels: '11-16',
         layers: ['satellite', 'topo'],
       });
 
+      window.dispatchEvent(new Event('offline-maps-updated'));
       setPresetStatus((prev) => ({ ...prev, [preset.id]: 'cached' }));
       await refreshStats();
     } catch (err) {
@@ -181,12 +173,14 @@ export default function OfflineMapModal({
 
   const handleDeleteRegion = (id) => {
     deleteOfflineRegion(id);
+    window.dispatchEvent(new Event('offline-maps-updated'));
     refreshStats();
   };
 
   const handleClearAll = async () => {
     if (window.confirm('Delete all offline cached map tiles? You will need internet to download them again.')) {
       await clearOfflineMapTiles();
+      window.dispatchEvent(new Event('offline-maps-updated'));
       await refreshStats();
     }
   };
@@ -285,97 +279,77 @@ export default function OfflineMapModal({
           {/* ── TAB 1: DOWNLOAD ACTIVE AREA OR ROUTE ───────────────────────── */}
           {activeTab === 'download' && (
             <div className="space-y-4">
-              {/* Target Selection */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Target Coverage Area
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => {
-                      setDownloadTarget('current');
-                      setCustomName('Visible Trail Area');
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col gap-1 ${
-                      downloadTarget === 'current'
-                        ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-sm'
-                        : 'border-white/10 bg-slate-900 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white">Current View</span>
-                      <Eye size={14} className={downloadTarget === 'current' ? 'text-emerald-400' : 'text-slate-500'} />
-                    </div>
-                    <span className="text-[10px] text-slate-400">Everything on your map right now</span>
-                  </button>
-
-                  <button
-                    disabled={!routePoints || routePoints.length === 0}
-                    onClick={() => {
-                      setDownloadTarget('route');
-                      setCustomName(destination ? `Trail to ${destination.name}` : 'Planned Trail Route');
-                    }}
-                    className={`p-3 rounded-2xl border text-left transition flex flex-col gap-1 ${
-                      !routePoints || routePoints.length === 0
-                        ? 'opacity-40 cursor-not-allowed border-white/5 bg-slate-900/50'
-                        : downloadTarget === 'route'
-                        ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-sm cursor-pointer'
-                        : 'border-white/10 bg-slate-900 text-slate-400 hover:text-white cursor-pointer'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white">Active Route Line</span>
-                      <Compass size={14} className={downloadTarget === 'route' ? 'text-emerald-400' : 'text-slate-500'} />
-                    </div>
-                    <span className="text-[10px] text-slate-400">
-                      {destination ? `Corridor to ${destination.name}` : 'Corridor along your line'}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Name input */}
+              {/* Region Label Input */}
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Region Label
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Region / Trail Label
+                  </label>
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-semibold">
+                    <Eye size={12} /> Current Visible Map Area
+                  </span>
+                </div>
                 <input
                   type="text"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="e.g. Mt. Pulag Camp 2 Corridor"
-                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="e.g. Mt. Batulao Trail Area"
+                  className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
                 />
               </div>
 
-              {/* Layers to Include */}
+              {/* Layers to Include (Now includes Outdoor Mode!) */}
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                   Map Layers to Pre-cache
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
-                    onClick={() => toggleLayer('satellite')}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
-                      selectedLayers.includes('satellite')
-                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
-                        : 'border-white/10 bg-slate-900 text-slate-500'
-                    }`}
-                  >
-                    <span>🛰️ Satellite View (Esri)</span>
-                    {selectedLayers.includes('satellite') && <CheckCircle2 size={14} className="text-emerald-400" />}
-                  </button>
-
-                  <button
+                    type="button"
                     onClick={() => toggleLayer('topo')}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition cursor-pointer ${
+                    className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs font-bold transition cursor-pointer gap-2 ${
                       selectedLayers.includes('topo')
                         ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
                         : 'border-white/10 bg-slate-900 text-slate-500'
                     }`}
                   >
-                    <span>⛰️ Topographic (Contours)</span>
-                    {selectedLayers.includes('topo') && <CheckCircle2 size={14} className="text-emerald-400" />}
+                    <div className="flex items-center justify-between w-full">
+                      <span>🏔️ Topo</span>
+                      {selectedLayers.includes('topo') && <CheckCircle2 size={13} className="text-emerald-400" />}
+                    </div>
+                    <span className="text-[9px] font-normal text-slate-400 text-left">Elevation Contours</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleLayer('streets')}
+                    className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs font-bold transition cursor-pointer gap-2 ${
+                      selectedLayers.includes('streets')
+                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/10 bg-slate-900 text-slate-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span>🗺️ Outdoor</span>
+                      {selectedLayers.includes('streets') && <CheckCircle2 size={13} className="text-emerald-400" />}
+                    </div>
+                    <span className="text-[9px] font-normal text-slate-400 text-left">Trails &amp; Paths</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleLayer('satellite')}
+                    className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs font-bold transition cursor-pointer gap-2 ${
+                      selectedLayers.includes('satellite')
+                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                        : 'border-white/10 bg-slate-900 text-slate-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span>🛰️ Satellite</span>
+                      {selectedLayers.includes('satellite') && <CheckCircle2 size={13} className="text-emerald-400" />}
+                    </div>
+                    <span className="text-[9px] font-normal text-slate-400 text-left">Esri Imagery</span>
                   </button>
                 </div>
               </div>
@@ -394,8 +368,8 @@ export default function OfflineMapModal({
                         : 'border-white/10 bg-slate-900 text-slate-400'
                     }`}
                   >
-                    <p className="font-bold text-white">Standard Trail (Z13-15)</p>
-                    <p className="text-[10px] text-slate-400">Fastest download • ~1-3 MB</p>
+                    <p className="font-bold text-white">Multi-Scale (Z11-16)</p>
+                    <p className="text-[10px] text-slate-400">Full zoom in & out • ~3-6 MB</p>
                   </button>
 
                   <button
@@ -406,8 +380,8 @@ export default function OfflineMapModal({
                         : 'border-white/10 bg-slate-900 text-slate-400'
                     }`}
                   >
-                    <p className="font-bold text-white">High Detail (Z13-16)</p>
-                    <p className="text-[10px] text-slate-400">Crisp footpath zoom • ~3-8 MB</p>
+                    <p className="font-bold text-white">Ultra Detail (Z11-17)</p>
+                    <p className="text-[10px] text-slate-400">Footpath detail • ~6-12 MB</p>
                   </button>
                 </div>
               </div>

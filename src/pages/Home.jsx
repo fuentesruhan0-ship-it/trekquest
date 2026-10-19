@@ -1,23 +1,26 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '@/lib/AuthContext';
 import CameraPlantScanner from '@/components/CameraPlantScanner';
 import MusicMode from '@/pages/Music';
+import OfflineMapModal from '@/components/OfflineMapModal';
 import {
   Menu, Search, Music, Compass as CompassIcon, Scan,
   X, ChevronRight, Backpack, Navigation, HeartPulse, BookOpen, UserRound,
-  Mountain, AlertCircle, LogOut, LocateFixed, RefreshCw
+  Mountain, AlertCircle, LogOut, LocateFixed, RefreshCw, Camera, FileText, Download
 } from 'lucide-react';
 import WeatherPlanDrawer from '@/components/WeatherPlanDrawer';
 import WeatherModal from '@/components/WeatherModal';
 import PlanRouteModal from '@/components/PlanRouteModal';
 import HikeInformationCard from '@/components/HikeInformationCard';
+import UpcomingHikesModal from '@/components/UpcomingHikesModal';
 import {
   searchBroadPlaces,
-  haversine
+  haversine,
+  getDestinationElevation
 } from '@/lib/philippinePlaces';
 
 // Custom Map Markers
@@ -74,6 +77,7 @@ function MapController({ center, zoom }) {
 
 export default function Home() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, logout, updateProfile } = useAuth();
 
   // Location & Map State
@@ -113,9 +117,41 @@ export default function Home() {
   const [customRouteStart, setCustomRouteStart] = useState(null);
 
   // Active Hike GPS Tracking
-  const [isTrackingHike, setIsTrackingHike] = useState(false);
-  const [hikeTrack, setHikeTrack] = useState([]);
-  const [hikeElapsedSeconds, setHikeElapsedSeconds] = useState(0);
+  const [isTrackingHike, setIsTrackingHike] = useState(() => {
+    try {
+      return localStorage.getItem('trekquest_is_tracking_hike') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [hikeTrack, setHikeTrack] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('trekquest_hike_track') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [hikeElapsedSeconds, setHikeElapsedSeconds] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem('trekquest_hike_elapsed_seconds') || '0');
+    } catch {
+      return 0;
+    }
+  });
+  const [activeHikeDestination, setActiveHikeDestination] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('trekquest_active_hike_destination') || 'null');
+    } catch {
+      return null;
+    }
+  });
+
+  // Elevation tracking
+  const [currentElevation, setCurrentElevation] = useState(0);
+  const [elevationGain, setElevationGain] = useState(0);
+  const [maxElevation, setMaxElevation] = useState(0);
+  const [minElevation, setMinElevation] = useState(Infinity);
+  const prevElevationRef = useRef(null);
 
   // UI Drawer & Modals State
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -125,6 +161,10 @@ export default function Home() {
   const [showWeatherDrawer, setShowWeatherDrawer] = useState(false);
   const [showWeatherModal, setShowWeatherModal] = useState(false);
   const [showPlanRouteModal, setShowPlanRouteModal] = useState(false);
+  const [showUpcomingHikesModal, setShowUpcomingHikesModal] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [showOfflineMapModal, setShowOfflineMapModal] = useState(false);
+  const [upcomingHikeInitialId, setUpcomingHikeInitialId] = useState(null);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [locatePing, setLocatePing] = useState(false);
@@ -189,13 +229,103 @@ export default function Home() {
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
+      async (pos) => {
         const newCoords = [pos.coords.latitude, pos.coords.longitude];
         // Always update the GPS position (used for the user's avatar marker)
         setPosition(newCoords);
         localStorage.setItem('trekquest_current_coords', JSON.stringify(newCoords));
+
+        // Elevation tracking from GPS
+        if (pos.coords.altitude !== null && pos.coords.altitude !== 0) {
+          const elev = pos.coords.altitude;
+          setCurrentElevation(elev);
+
+          if (isTrackingHike) {
+            // Track elevation gain/loss
+            if (prevElevationRef.current !== null) {
+              const diff = elev - prevElevationRef.current;
+              if (diff > 0) {
+                setElevationGain((prev) => prev + diff);
+              }
+            }
+            prevElevationRef.current = elev;
+
+            // Track max/min elevation
+            setMaxElevation((prev) => Math.max(prev, elev));
+            setMinElevation((prev) => Math.min(prev, elev));
+          }
+        }
+
         if (isTrackingHike) {
           setHikeTrack((prev) => [...prev, newCoords]);
+
+          // Auto-complete hike detection: reached destination AND returned to start
+          if (activeHikeDestination && hikeTrack.length > 0) {
+            const destCoords = [activeHikeDestination.lat, activeHikeDestination.lng];
+            const startCoords = hikeTrack[0];
+
+            const distToDest = haversine(newCoords, destCoords);
+            const distToStart = haversine(newCoords, startCoords);
+
+            // Check if reached destination (within 50 meters)
+            const reachedDest = distToDest < 0.05;
+
+            // Check if returned to start (within 50 meters)
+            const returnedToStart = distToStart < 0.05;
+
+            // Auto-complete if both conditions met
+            if (reachedDest && returnedToStart) {
+              // Save hike automatically
+              const photos = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+              const dist = hikeTrack?.length > 1
+                ? hikeTrack.reduce((acc, pos, i) => {
+                  if (i === 0) return 0;
+                  return acc + haversine(hikeTrack[i-1], pos);
+                }, 0)
+                : 0;
+
+              const hikeData = {
+                trail_name: activeHikeDestination.name || 'Mountain Expedition',
+                mountain: activeHikeDestination.name || 'Philippine Peak',
+                date: new Date().toISOString().slice(0, 10),
+                duration_minutes: Math.max(1, Math.round(hikeElapsedSeconds / 60)),
+                distance_km: parseFloat(dist.toFixed(2)),
+                steps: Math.round(dist * 1330),
+                calories: Math.round((Math.round(dist * 1330) / 50)),
+                elevation_gain_m: Math.round(elevationGain) || getDestinationElevation(activeHikeDestination),
+                difficulty: activeHikeDestination.difficulty || 'moderate',
+                status: 'completed',
+                notes: `Completed ${activeHikeDestination.name || 'peak'} via TrekQuest Auto-Complete.`,
+                photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80'],
+              };
+
+              console.log('Auto-saving hike:', hikeData);
+              const savedHike = await base44.entities.Hike.create(hikeData);
+              console.log('Hike saved successfully:', savedHike);
+              setLocationToast('✅ Hike saved! ' + savedHike.id);
+              setTimeout(() => setLocationToast(''), 3000);
+
+              localStorage.removeItem('trekquest_active_hike_photos');
+              setIsTrackingHike(false);
+              setHikeTrack([]);
+              setHikeElapsedSeconds(0);
+              setActiveHikeDestination(null);
+              setDestination(null);
+              setElevationGain(0);
+              setMaxElevation(0);
+              setMinElevation(Infinity);
+              prevElevationRef.current = null;
+              localStorage.removeItem('trekquest_is_tracking_hike');
+              localStorage.removeItem('trekquest_hike_track');
+              localStorage.removeItem('trekquest_hike_elapsed_seconds');
+              localStorage.removeItem('trekquest_active_hike_destination');
+              setLocationToast('🎉 Hike completed! Saved to Mountains Conquered!');
+              setTimeout(() => {
+                setLocationToast('');
+                navigate('/profile');
+              }, 2000);
+            }
+          }
         }
         // CRITICAL: Do NOT update mapCenter here — this would snap the map
         // view back to the user's physical location every 3s, breaking route planning.
@@ -204,7 +334,7 @@ export default function Home() {
       { enableHighAccuracy: true, maximumAge: 3000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isTrackingHike]);
+  }, [isTrackingHike, activeHikeDestination, hikeTrack, hikeElapsedSeconds, elevationGain]);
 
   // Active Hike Timer
   useEffect(() => {
@@ -214,6 +344,23 @@ export default function Home() {
     }, 1000);
     return () => clearInterval(interval);
   }, [isTrackingHike]);
+
+  // Save tracking state to localStorage
+  useEffect(() => {
+    localStorage.setItem('trekquest_is_tracking_hike', isTrackingHike.toString());
+  }, [isTrackingHike]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_hike_track', JSON.stringify(hikeTrack));
+  }, [hikeTrack]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_hike_elapsed_seconds', hikeElapsedSeconds.toString());
+  }, [hikeElapsedSeconds]);
+
+  useEffect(() => {
+    localStorage.setItem('trekquest_active_hike_destination', JSON.stringify(activeHikeDestination));
+  }, [activeHikeDestination]);
 
   // Listen to custom location changes
   useEffect(() => {
@@ -229,6 +376,51 @@ export default function Home() {
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // Listen to ?drawer=routes or ?upcoming=true to open Upcoming Hikes modal
+  useEffect(() => {
+    if (searchParams.get('drawer') === 'routes' || searchParams.get('upcoming') === 'true') {
+      setShowUpcomingHikesModal(true);
+    }
+  }, [searchParams]);
+
+  // Auto-start hike from Profile page
+  useEffect(() => {
+    const autoStart = localStorage.getItem('trekquest_auto_start_hike');
+    if (autoStart === 'true') {
+      const savedHike = localStorage.getItem('trekquest_active_hike_start');
+      if (savedHike) {
+        try {
+          const hike = JSON.parse(savedHike);
+          const destObj = {
+            id: hike.id,
+            name: hike.destName,
+            lat: hike.destCoords[0],
+            lng: hike.destCoords[1],
+            type: hike.type,
+            region: hike.region,
+            distanceKm: hike.distanceKm,
+            estHours: hike.estHours,
+          };
+          setDestination(destObj);
+          setActiveHikeDestination(destObj);
+          setShowHikeInfo(true);
+          setIsTrackingHike(true);
+          const customStart = localStorage.getItem('trekquest_custom_start');
+          setHikeTrack(customStart ? [JSON.parse(customStart)] : []);
+          if (hike.startCoords) {
+            setMapCenter([(hike.startCoords[0] + hike.destCoords[0]) / 2, (hike.startCoords[1] + hike.destCoords[1]) / 2]);
+          }
+          setLocationToast(`🚶 Live Hike Started for ${hike.destName}!`);
+          setTimeout(() => setLocationToast(''), 3500);
+        } catch (err) {
+          console.warn('Failed to auto-start hike:', err);
+        }
+      }
+      localStorage.removeItem('trekquest_auto_start_hike');
+      localStorage.removeItem('trekquest_active_hike_start');
+    }
   }, []);
 
   // ── BROAD SEARCH: Immediate letter-matching + Nominatim places ─────
@@ -280,17 +472,30 @@ export default function Home() {
   }, []);
 
   // Handle destination selection (via Search, Plan Route Modal, or Peak Marker)
-  // customStart is the user-chosen starting point from PlanRouteModal — NEVER GPS!
-  const handleSelectDestination = (dest, chosenStart = null) => {
+  const handleSelectDestination = (dest, chosenStart = null, autoStart = false, plannedHike = null) => {
     if (chosenStart && Array.isArray(chosenStart)) {
       // Store the user's chosen route start separately — do NOT overwrite GPS position
       setCustomRouteStart(chosenStart);
     }
     setDestination(dest);
-    setShowHikeInfo(true);
     setSearchQuery('');
     setSearchResults([]);
     setShowPlanRouteModal(false);
+
+    if (autoStart) {
+      setShowHikeInfo(true);
+      setLocationToast(`📍 Destination set: ${dest.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+    } else {
+      // Saved to Upcoming Hikes!
+      setShowHikeInfo(false);
+      setShowUpcomingHikesModal(true);
+      if (plannedHike?.id) {
+        setUpcomingHikeInitialId(plannedHike.id);
+      }
+      setLocationToast(`✅ Route saved to Upcoming Hikes: ${dest.name}`);
+      setTimeout(() => setLocationToast(''), 3500);
+    }
 
     const origin = chosenStart || customRouteStart || position;
     if (origin && dest.lat && dest.lng) {
@@ -304,6 +509,59 @@ export default function Home() {
       setMapCenter([dest.lat, dest.lng]);
       setMapZoom(14);
     }
+  };
+
+  // Called from UpcomingHikesModal: start a planned hike
+  const handleStartHikeFromUpcoming = (hike) => {
+    if (hike.startCoords) {
+      setCustomRouteStart(hike.startCoords);
+    }
+    const destObj = {
+      id: hike.id,
+      name: hike.destName,
+      lat: hike.destCoords[0],
+      lng: hike.destCoords[1],
+      type: hike.type,
+      region: hike.region,
+      distanceKm: hike.distanceKm,
+      estHours: hike.estHours,
+    };
+    setDestination(destObj);
+    setShowUpcomingHikesModal(false);
+    setShowHikeInfo(true);
+    setIsTrackingHike(true);
+    setHikeTrack(hike.startCoords ? [hike.startCoords] : []);
+    if (hike.startCoords) {
+      setMapCenter([(hike.startCoords[0] + hike.destCoords[0]) / 2, (hike.startCoords[1] + hike.destCoords[1]) / 2]);
+    }
+    setLocationToast(`🚶 Live Hike Started for ${hike.destName}!`);
+    setTimeout(() => setLocationToast(''), 3500);
+  };
+
+  // Called from UpcomingHikesModal: view planned route on map
+  const handleViewRouteOnMapFromUpcoming = (hike) => {
+    if (hike.startCoords) {
+      setCustomRouteStart(hike.startCoords);
+    }
+    const destObj = {
+      id: hike.id,
+      name: hike.destName,
+      lat: hike.destCoords[0],
+      lng: hike.destCoords[1],
+      type: hike.type,
+      region: hike.region,
+      distanceKm: hike.distanceKm,
+      estHours: hike.estHours,
+    };
+    setDestination(destObj);
+    setShowUpcomingHikesModal(false);
+    setShowHikeInfo(true);
+    setUpcomingHikeInitialId(hike.id);
+    if (hike.startCoords) {
+      setMapCenter([(hike.startCoords[0] + hike.destCoords[0]) / 2, (hike.startCoords[1] + hike.destCoords[1]) / 2]);
+    }
+    setLocationToast(`🗺️ Loaded route: ${hike.name}`);
+    setTimeout(() => setLocationToast(''), 3000);
   };
 
   const locateUserPosition = () => {
@@ -369,7 +627,8 @@ export default function Home() {
               key="satellite"
               attribution="Tiles &copy; Esri World Imagery"
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-              maxZoom={19}
+              maxNativeZoom={18}
+              maxZoom={22}
             />
           )}
 
@@ -379,7 +638,8 @@ export default function Home() {
               key="topo"
               attribution="&copy; OpenTopoMap"
               url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-              maxZoom={17}
+              maxNativeZoom={17}
+              maxZoom={22}
             />
           )}
 
@@ -389,7 +649,8 @@ export default function Home() {
               key="streets"
               attribution="&copy; OpenStreetMap"
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              maxZoom={19}
+              maxNativeZoom={19}
+              maxZoom={22}
             />
           )}
 
@@ -493,7 +754,7 @@ export default function Home() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search place, city, barangay, or trail…"
+              placeholder="Search destination"
               className="bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none w-full pr-3"
             />
             {isSearching ? (
@@ -617,71 +878,262 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── RIGHT-SIDE FLOATING ACTION BUTTONS ─────────────────────────── */}
+      {/* ── THREE CIRCULAR BUTTONS ON THE RIGHT SIDE: Music, Compass, Scanner ── */}
       <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-3">
-        {/* GPS Locate Me Button */}
+        {/* 1. Music Player Button */}
+        <button
+          onClick={() => setShowMusicModal(true)}
+          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-purple-400/80 group"
+          title="Music Player"
+        >
+          <Music size={22} className="group-hover:scale-110 transition" />
+        </button>
+
+        {/* 2. Compass Button */}
+        <button
+          onClick={() => setShowCompassModal(true)}
+          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-sky-400/80 group"
+          title="Compass"
+        >
+          <CompassIcon size={22} className="group-hover:scale-110 transition" />
+        </button>
+
+        {/* 3. Scanner Button */}
+        <button
+          onClick={() => setShowScannerModal(true)}
+          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400/80 group"
+          title="Scanner"
+        >
+          <Scan size={22} className="group-hover:scale-110 transition" />
+        </button>
+
+        {/* 4. Offline Map Download Button */}
+        <button
+          onClick={() => setShowOfflineMapModal(true)}
+          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-blue-400/80 group"
+          title="Download Offline Maps"
+        >
+          <Download size={22} className="group-hover:scale-110 transition" />
+        </button>
+
+        {/* Subtle GPS Locate Me Button */}
         <button
           onClick={locateUserPosition}
           disabled={isLocating}
-          className={`w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400 group ${
+          className={`w-12 h-12 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/10 active:scale-90 transition cursor-pointer hover:border-emerald-400/60 group mt-2 ${
             isLocating ? 'animate-pulse border-emerald-400' : ''
           }`}
           title="Locate My Position"
         >
           {isLocating ? (
-            <RefreshCw size={22} className="text-emerald-400 animate-spin" />
+            <RefreshCw size={19} className="text-emerald-400 animate-spin" />
           ) : (
-            <LocateFixed size={22} className="text-emerald-400 group-hover:scale-110 transition" />
+            <LocateFixed size={19} className="text-emerald-400 group-hover:scale-110 transition" />
           )}
         </button>
 
-        {/* Music Player Button */}
-        <button
-          onClick={() => setShowMusicModal(true)}
-          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-purple-400/80 group"
-          title="Offline Music Player"
-        >
-          <Music size={22} className="group-hover:scale-110 transition" />
-        </button>
+        {/* Camera Button - Only show when tracking hike */}
+        {isTrackingHike && (
+          <button
+            onClick={async () => {
+              try {
+                // Check permission status first
+                const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                
+                if (permissionStatus.state === 'denied') {
+                  const shouldAsk = confirm('TrekQuest needs camera access to take photos during your hike. Allow camera access?');
+                  if (!shouldAsk) return;
+                }
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                  video: { facingMode: 'environment' } 
+                });
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.autoplay = true;
+                video.playsInline = true;
+                video.muted = true;
+                video.className = 'fixed inset-0 w-full h-full object-cover z-[5000]';
+                document.body.appendChild(video);
+                
+                const canvas = document.createElement('canvas');
+                canvas.className = 'hidden';
+                document.body.appendChild(canvas);
+                
+                const controls = document.createElement('div');
+                controls.className = 'fixed bottom-8 left-0 right-0 flex items-center justify-center gap-4 px-4 z-[5001]';
+                controls.innerHTML = `
+                  <button id="cancelCamera" class="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border-2 border-white text-white font-bold text-sm flex items-center justify-center cursor-pointer hover:bg-white/30 transition">✕</button>
+                  <button id="capturePhoto" class="w-20 h-20 rounded-full bg-white border-4 border-emerald-400 flex items-center justify-center cursor-pointer hover:scale-105 transition shadow-2xl"><div class="w-16 h-16 rounded-full bg-emerald-500"></div></button>
+                  <div class="w-16"></div>
+                `;
+                document.body.appendChild(controls);
+                
+                const capture = () => {
+                  canvas.width = video.videoWidth;
+                  canvas.height = video.videoHeight;
+                  const ctx = canvas.getContext('2d');
+                  ctx.drawImage(video, 0, 0);
+                  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                  try {
+                    const current = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                    const updated = [...current, dataUrl];
+                    localStorage.setItem('trekquest_active_hike_photos', JSON.stringify(updated));
+                    setLocationToast('📸 Photo saved!');
+                    setTimeout(() => setLocationToast(''), 2000);
+                  } catch {}
+                  // Cleanup
+                  stream.getTracks().forEach(track => track.stop());
+                  video.remove();
+                  canvas.remove();
+                  controls.remove();
+                };
+                
+                document.getElementById('capturePhoto').onclick = capture;
+                document.getElementById('cancelCamera').onclick = () => {
+                  stream.getTracks().forEach(track => track.stop());
+                  video.remove();
+                  canvas.remove();
+                  controls.remove();
+                };
+              } catch (err) {
+                console.error('Camera access denied:', err);
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                  const shouldAsk = confirm('Camera permission was denied. Would you like to try again?');
+                  if (shouldAsk) {
+                    // User will need to manually enable in browser settings
+                    alert('Please enable camera permissions in your browser settings and try again.');
+                  }
+                } else {
+                  alert('Unable to access camera. Please allow camera permissions.');
+                }
+              }
+            }}
+            className="w-12 h-12 rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-emerald-400/30 active:scale-90 transition cursor-pointer group relative mt-2"
+            title="Take Hike Photo"
+          >
+            <Camera size={22} className="group-hover:scale-110 transition" />
+            {(() => {
+              try {
+                const photos = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                if (photos.length > 0) {
+                  return (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white font-mono font-black text-[10px] flex items-center justify-center shadow">
+                      {photos.length}
+                    </span>
+                  );
+                }
+              } catch {}
+              return null;
+            })()}
+          </button>
+        )}
 
-        {/* Compass Button */}
-        <button
-          onClick={() => setShowCompassModal(true)}
-          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-sky-400/80 group"
-          title="Digital Compass"
-        >
-          <CompassIcon size={22} className="group-hover:scale-110 transition" />
-        </button>
-
-        {/* Camera / Plant Scanner Button */}
-        <button
-          onClick={() => setShowScannerModal(true)}
-          className="w-12 h-12 rounded-full bg-black/85 hover:bg-black text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-white/20 active:scale-90 transition cursor-pointer hover:border-emerald-400/80 group"
-          title="Camera Plant Scanner"
-        >
-          <Scan size={22} className="group-hover:scale-110 transition" />
-        </button>
+        {/* Notes/Journal Button - Only show when tracking hike */}
+        {isTrackingHike && (
+          <button
+            onClick={() => setShowNotesModal(true)}
+            className="w-12 h-12 rounded-full bg-amber-600/80 hover:bg-amber-500 text-white flex items-center justify-center backdrop-blur-md shadow-2xl border border-amber-400/30 active:scale-90 transition cursor-pointer group mt-2"
+            title="Add Notes or Journal Entry"
+          >
+            <FileText size={22} className="group-hover:scale-110 transition" />
+          </button>
+        )}
       </div>
 
       {/* ── HIKE INFORMATION & ROUTE GUIDE CARD ───────────────────────── */}
-      {showHikeInfo && destination && (() => {
+      {showHikeInfo && (() => {
         const routeStart = customRouteStart || position;
+        const displayDestination = destination || activeHikeDestination;
+        console.log('Rendering HikeInformationCard with destination:', displayDestination);
         return (
           <HikeInformationCard
-            destination={destination}
-            currentPosition={routeStart}
+            destination={displayDestination}
+            currentPosition={isTrackingHike ? position : routeStart}
             isTracking={isTrackingHike}
             elapsedSeconds={hikeElapsedSeconds}
+            currentElevation={currentElevation}
+            elevationGain={elevationGain}
+            maxElevation={maxElevation}
+            minElevation={minElevation}
             onStartTracking={() => {
+              const destToUse = destination || activeHikeDestination;
+              if (!destToUse) {
+                alert('No destination set. Please plan a route first.');
+                return;
+              }
               setIsTrackingHike(true);
+              setActiveHikeDestination(destToUse);
               setHikeTrack(routeStart ? [routeStart] : []);
               setLocationToast('🟢 Trail GPS tracking started — breadcrumbs recording');
               setTimeout(() => setLocationToast(''), 3000);
             }}
             onStopTracking={() => {
+              console.log('=== STOP TRACKING CLICKED ===');
+              console.log('Destination:', destination);
+              console.log('ActiveHikeDestination:', activeHikeDestination);
+              console.log('HikeTrack length:', hikeTrack.length);
+              console.log('ElapsedSeconds:', hikeElapsedSeconds);
+
+              // Save hike with photos to Mountains Conquered
+              const saveHikeToConquered = async () => {
+                try {
+                  const photos = JSON.parse(localStorage.getItem('trekquest_active_hike_photos') || '[]');
+                  const dist = hikeTrack?.length > 1
+                    ? hikeTrack.reduce((acc, pos, i) => {
+                      if (i === 0) return 0;
+                      return acc + haversine(hikeTrack[i-1], pos);
+                    }, 0)
+                    : 0;
+
+                  const hikeData = {
+                    trail_name: destination?.name || activeHikeDestination?.name || 'Mountain Expedition',
+                    mountain: destination?.name || activeHikeDestination?.name || 'Philippine Peak',
+                    date: new Date().toISOString().slice(0, 10),
+                    duration_minutes: Math.max(1, Math.round(hikeElapsedSeconds / 60)),
+                    distance_km: parseFloat(dist.toFixed(2)),
+                    steps: Math.round(dist * 1330),
+                    calories: Math.round((Math.round(dist * 1330) / 50)), // simplified calorie calc
+                    elevation_gain_m: Math.round(elevationGain) || getDestinationElevation(destination || activeHikeDestination),
+                    difficulty: destination?.difficulty || activeHikeDestination?.difficulty || 'moderate',
+                    status: 'completed',
+                    notes: `Conquered ${destination?.name || activeHikeDestination?.name || 'peak'} via TrekQuest Live GPS Navigation.`,
+                    photos: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80'],
+                  };
+
+                  console.log('Saving hike data:', hikeData);
+                  const savedHike = await base44.entities.Hike.create(hikeData);
+                  console.log('Hike saved successfully:', savedHike);
+                  setLocationToast('✅ Hike saved! ' + savedHike.id);
+                  setTimeout(() => setLocationToast(''), 3000);
+
+                  // Clear saved photos
+                  localStorage.removeItem('trekquest_active_hike_photos');
+                } catch (err) {
+                  console.warn('Failed to save hike:', err);
+                  setLocationToast('❌ Failed to save hike');
+                  setTimeout(() => setLocationToast(''), 3000);
+                }
+              };
+
+              saveHikeToConquered();
               setIsTrackingHike(false);
-              setLocationToast('⏹️ Hike tracking stopped');
-              setTimeout(() => setLocationToast(''), 3000);
+              setHikeTrack([]);
+              setHikeElapsedSeconds(0);
+              setActiveHikeDestination(null);
+              setElevationGain(0);
+              setMaxElevation(0);
+              setMinElevation(Infinity);
+              prevElevationRef.current = null;
+              localStorage.removeItem('trekquest_is_tracking_hike');
+              localStorage.removeItem('trekquest_hike_track');
+              localStorage.removeItem('trekquest_hike_elapsed_seconds');
+              localStorage.removeItem('trekquest_active_hike_destination');
+              setLocationToast('⏹️ Hike saved to Mountains Conquered!');
+              setTimeout(() => {
+                setLocationToast('');
+                navigate('/profile');
+              }, 2000);
             }}
             onRecenterRoute={() => {
               if (routeStart && destination) {
@@ -698,12 +1150,63 @@ export default function Home() {
               setHikeTrack([]);
             }}
             onClose={() => setShowHikeInfo(false)}
+            onBack={() => setShowHikeInfo(false)}
           />
         );
       })()}
 
+      {/* ── MINI TRACKING INDICATOR (shown when card is closed but tracking is active) ── */}
+      {!showHikeInfo && isTrackingHike && (
+        <div className="absolute bottom-24 right-4 z-[1400] bg-slate-950/80 backdrop-blur-xl border border-emerald-500/30 rounded-2xl p-3 shadow-2xl text-white min-w-[140px] animate-in slide-in-from-bottom-2 duration-300">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+              Hiking
+            </span>
+          </div>
+          <div className="text-center mb-2">
+            <span className="text-[8px] text-slate-400 block">Duration</span>
+            <span className="font-mono font-bold text-amber-400 text-lg">
+              {(() => {
+                const h = Math.floor(hikeElapsedSeconds / 3600);
+                const m = Math.floor((hikeElapsedSeconds % 3600) / 60);
+                const s = hikeElapsedSeconds % 60;
+                return `${h > 0 ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+              })()}
+            </span>
+          </div>
+          <div className="text-center mb-2">
+            <span className="text-[8px] text-slate-400 block">GPS Points</span>
+            <span className="font-mono font-bold text-sky-400 text-sm">
+              {hikeTrack.length}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              console.log('View Details clicked, activeHikeDestination:', activeHikeDestination);
+              if (activeHikeDestination) {
+                setDestination(activeHikeDestination);
+              } else {
+                // Fallback: create a minimal destination object if tracking without destination
+                setDestination({
+                  name: 'Active Hike',
+                  type: 'Unknown',
+                  region: 'Current Location',
+                  lat: position[0],
+                  lng: position[1]
+                });
+              }
+              setShowHikeInfo(true);
+            }}
+            className="w-full py-1.5 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-[10px] font-bold transition"
+          >
+            View Details
+          </button>
+        </div>
+      )}
+
       {/* ── BOTTOM WEATHER & PLAN A ROUTE DRAWER ─────────────────────── */}
-      {!showHikeInfo && (
+      {!showHikeInfo && !isTrackingHike && (
         <WeatherPlanDrawer
           isOpen={showWeatherDrawer}
           onOpen={() => setShowWeatherDrawer(true)}
@@ -780,19 +1283,7 @@ export default function Home() {
               <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
             </button>
 
-            <button
-              onClick={() => { setSidebarOpen(false); navigate('/map?drawer=routes'); }}
-              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-emerald-400 flex items-center justify-center shrink-0">
-                  <Navigation size={20} />
-                </div>
-                <span className="font-bold text-sm">Your Routes</span>
-              </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
-            </button>
-
+            {/* b) First Aid Guide */}
             <button
               onClick={() => { setSidebarOpen(false); navigate('/first-aid'); }}
               className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
@@ -803,9 +1294,10 @@ export default function Home() {
                 </div>
                 <span className="font-bold text-sm">First Aid Guide</span>
               </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
 
+            {/* 4. Survival Manual */}
             <button
               onClick={() => { setSidebarOpen(false); navigate('/survival'); }}
               className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
@@ -816,9 +1308,10 @@ export default function Home() {
                 </div>
                 <span className="font-bold text-sm">Survival Manual</span>
               </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
 
+            {/* 5. My Profile (One unified destination with Emergency Card, Conquered Peaks, and Hike Info) */}
             <button
               onClick={() => { setSidebarOpen(false); navigate('/profile'); }}
               className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
@@ -827,35 +1320,12 @@ export default function Home() {
                 <div className="w-10 h-10 rounded-xl bg-[#182a20] text-cyan-400 flex items-center justify-center shrink-0">
                   <UserRound size={20} />
                 </div>
-                <span className="font-bold text-sm">My Profile</span>
-              </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
-            </button>
-
-            <button
-              onClick={() => { setSidebarOpen(false); navigate('/mountain-tracker'); }}
-              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-stone-300 flex items-center justify-center shrink-0">
-                  <Mountain size={20} />
+                <div>
+                  <span className="font-bold text-sm block">My Profile</span>
+                  <span className="text-[10px] text-slate-500">Emergency card, conquered peaks & hike info</span>
                 </div>
-                <span className="font-bold text-sm">Mountains Conquered</span>
               </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
-            </button>
-
-            <button
-              onClick={() => { setSidebarOpen(false); navigate('/emergency'); }}
-              className="w-full bg-white text-slate-900 rounded-2xl p-3.5 shadow-sm hover:shadow-md flex items-center justify-between active:scale-[0.98] transition group text-left cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#182a20] text-red-500 flex items-center justify-center shrink-0">
-                  <AlertCircle size={20} />
-                </div>
-                <span className="font-bold text-sm">Emergency Info Card</span>
-              </div>
-              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 transition" />
+              <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-900 group-hover:translate-x-0.5 transition" />
             </button>
           </div>
         </div>
@@ -876,6 +1346,61 @@ export default function Home() {
         <WeatherModal onClose={() => setShowWeatherModal(false)} />
       )}
 
+      {/* 2. Notes/Journal Selection Modal */}
+      {showNotesModal && (
+        <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/20 text-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
+              <FileText size={32} />
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-bold text-amber-300">
+                Add Notes or Journal Entry?
+              </h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                Would you like to add quick notes for this hike, or create a full journal entry?
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  // Navigate to Journal page with from=hike parameter
+                  window.location.href = '/journal?from=hike';
+                }}
+                className="flex-1 py-3 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold transition"
+              >
+                Journal Entry
+              </button>
+              <button
+                onClick={() => {
+                  setShowNotesModal(false);
+                  const note = prompt('Add a quick note for this hike:');
+                  if (note) {
+                    try {
+                      const currentNotes = JSON.parse(localStorage.getItem('trekquest_hike_notes') || '[]');
+                      const updated = [...currentNotes, { note, timestamp: new Date().toISOString() }];
+                      localStorage.setItem('trekquest_hike_notes', JSON.stringify(updated));
+                      setLocationToast('📝 Note saved!');
+                      setTimeout(() => setLocationToast(''), 2000);
+                    } catch {}
+                  }
+                }}
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition"
+              >
+                Notes
+              </button>
+            </div>
+            <button
+              onClick={() => setShowNotesModal(false)}
+              className="w-full py-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-sm font-bold transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Plan a Route Modal (Directs straight to Hike Information!) */}
       {showPlanRouteModal && (
         <PlanRouteModal
@@ -883,6 +1408,19 @@ export default function Home() {
           onStartRoute={handleSelectDestination}
         />
       )}
+
+      {/* 2b. Upcoming Hikes & Saved Route Details Modal */}
+      <UpcomingHikesModal
+        isOpen={showUpcomingHikesModal}
+        onClose={() => {
+          setShowUpcomingHikesModal(false);
+          setUpcomingHikeInitialId(null);
+        }}
+        onStartHike={handleStartHikeFromUpcoming}
+        onViewOnMap={handleViewRouteOnMapFromUpcoming}
+        onPlanNewRoute={() => setShowPlanRouteModal(true)}
+        initialSelectedId={upcomingHikeInitialId}
+      />
 
       {/* 3. Music Player Modal */}
       {showMusicModal && (
@@ -936,6 +1474,21 @@ export default function Home() {
         <div className="fixed inset-0 z-[3000]">
           <CameraPlantScanner onClose={() => setShowScannerModal(false)} />
         </div>
+      )}
+
+      {/* 6. Offline Map Modal */}
+      {showOfflineMapModal && (
+        <OfflineMapModal
+          isOpen={showOfflineMapModal}
+          onClose={() => setShowOfflineMapModal(false)}
+          currentBounds={mapCenter ? { south: mapCenter[0] - 0.05, west: mapCenter[1] - 0.05, north: mapCenter[0] + 0.05, east: mapCenter[1] + 0.05 } : null}
+          routePoints={hikeTrack}
+          destination={destination || activeHikeDestination}
+          onJumpToBounds={(bounds) => {
+            setMapCenter([(bounds.south + bounds.north) / 2, (bounds.west + bounds.east) / 2]);
+            setMapZoom(14);
+          }}
+        />
       )}
 
       {/* 6. Edit Profile Modal */}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/PageHeader';
+import { useAuth } from '@/lib/AuthContext';
 import { base44 } from '@/api/base44Client';
 import {
   Mountain, Play, Square, Plus, Trash2, Clock, TrendingUp, Award,
@@ -17,6 +18,7 @@ const diffColor = {
 
 export default function MountainTracker() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [hikes, setHikes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timerRunning, setTimerRunning] = useState(false);
@@ -388,6 +390,25 @@ export default function MountainTracker() {
         accent="bg-stone-800"
       />
       <div className="p-4 space-y-4 max-w-lg mx-auto">
+        {/* User Account Role Banner */}
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-card border border-border shadow-sm text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm shrink-0 ${
+              user?.role === 'admin'
+                ? 'bg-purple-950/80 border-purple-400 text-purple-200'
+                : user?.role === 'guide'
+                ? 'bg-amber-950/80 border-amber-400 text-amber-200'
+                : 'bg-emerald-950/80 border-emerald-400 text-emerald-200'
+            }`}>
+              {user?.badge || '🏔️ Hiker'}
+            </span>
+            <span className="font-bold text-foreground truncate">{user?.full_name || 'Hiker'}</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[150px] shrink-0">
+            {user?.email}
+          </span>
+        </div>
+
         {/* Timer Hero */}
         <div className="bg-gradient-to-br from-stone-800 via-stone-900 to-black text-white rounded-3xl p-6 text-center shadow-xl border border-stone-700/50">
           <Mountain size={40} className="mx-auto text-emerald-400 opacity-90" />

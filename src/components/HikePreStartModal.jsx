@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Mountain, Navigation, Clock, Calendar, CloudSun,
-  Footprints, AlertTriangle, Play, X, Wind, Droplets,
+  Footprints, Flame, AlertTriangle, Play, X, Wind, Droplets,
   MapPin, ChevronRight, Download
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
@@ -59,10 +59,22 @@ export default function HikePreStartModal({
     : parseFloat(destination?.distanceKm || 5);
 
   const estHours = parseFloat(destination?.estHours || Math.max(0.4, distKm / 3.5).toFixed(1));
+  const stayHours = parseFloat(destination?.stayHours) || 2;
+  const estSteps = Math.round(distKm * 1330);
+  const estCalories = Math.max(15, Math.round(estSteps * 0.045 + (estHours * 60) * 4.2));
 
-  const returnTime = new Date(now.getTime() + estHours * 60 * 60 * 1000);
-  const returnStr = returnTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
-  const returnDateStr = returnTime.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' });
+  // Destination Arrival ETA
+  const arrivalTime = new Date(now.getTime() + estHours * 3600 * 1000);
+  const arrivalStr = arrivalTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+  // Safe Return Departure Alert Time (arrival + stayHours)
+  const returnDepartureTime = new Date(arrivalTime.getTime() + stayHours * 3600 * 1000);
+  const returnDepartureStr = returnDepartureTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+  // Final base return time (returnDeparture + estHours)
+  const finalBaseReturnTime = new Date(returnDepartureTime.getTime() + estHours * 3600 * 1000);
+  const finalBaseReturnStr = finalBaseReturnTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+  const returnDateStr = finalBaseReturnTime.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' });
 
   useEffect(() => {
     if (destination?.lat && destination?.lng) {
@@ -163,32 +175,78 @@ export default function HikePreStartModal({
               </div>
             </div>
 
-            {/* Distance */}
-            <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-center">
-              <Navigation size={20} className="text-emerald-400 mx-auto mb-1" />
+            {/* 1. Distance */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Navigation size={18} className="text-emerald-400 mx-auto mb-1" />
               <p className="text-[10px] text-slate-400 font-bold uppercase">Distance</p>
-              <p className="text-xl font-black text-emerald-400 font-mono">{distKm.toFixed(1)}</p>
+              <p className="text-lg font-black text-emerald-400 font-mono">{distKm.toFixed(1)}</p>
               <p className="text-[10px] text-slate-400">km</p>
             </div>
 
-            {/* Est. Duration */}
-            <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-center">
-              <Clock size={20} className="text-amber-400 mx-auto mb-1" />
+            {/* 2. Est. Duration */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Clock size={18} className="text-amber-400 mx-auto mb-1" />
               <p className="text-[10px] text-slate-400 font-bold uppercase">Est. Duration</p>
-              <p className="text-xl font-black text-amber-400 font-mono">~{estHours}</p>
+              <p className="text-lg font-black text-amber-400 font-mono">~{estHours}</p>
               <p className="text-[10px] text-slate-400">hours</p>
             </div>
 
-            {/* Estimated Return */}
-            <div className="col-span-2 p-3.5 rounded-2xl bg-orange-950/40 border border-orange-500/30 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center shrink-0">
-                <Clock size={18} className="text-orange-400" />
+            {/* 3. Steps Counter */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Footprints size={18} className="text-sky-400 mx-auto mb-1" />
+              <p className="text-[10px] text-slate-400 font-bold uppercase">Steps Counter</p>
+              <p className="text-lg font-black text-sky-400 font-mono">{estSteps.toLocaleString()}</p>
+              <p className="text-[10px] text-slate-400">steps</p>
+            </div>
+
+            {/* 4. Burned Calories */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center">
+              <Flame size={18} className="text-rose-400 mx-auto mb-1" />
+              <p className="text-[10px] text-slate-400 font-bold uppercase">Burned Calories</p>
+              <p className="text-lg font-black text-rose-400 font-mono">{estCalories}</p>
+              <p className="text-[10px] text-slate-400">kcal</p>
+            </div>
+
+            {/* Safe Return Schedule Card */}
+            <div className="col-span-2 p-3.5 rounded-2xl bg-gradient-to-br from-amber-950/40 via-orange-950/30 to-slate-900/80 border border-orange-500/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center shrink-0">
+                    <Clock size={16} className="text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-orange-400 font-extrabold uppercase tracking-wider">
+                      ⏰ Safe Return Schedule
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Planned Stay: <strong className="text-amber-300 font-mono">{stayHours} hr{stayHours !== 1 ? 's' : ''}</strong> at peak
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 font-bold border border-orange-500/30">
+                  Auto Reminder
+                </span>
               </div>
-              <div>
-                <p className="text-[10px] text-orange-400 font-bold uppercase">⏰ Estimated Return</p>
-                <p className="text-base font-extrabold text-white">{returnStr}</p>
-                <p className="text-[10px] text-orange-300">{returnDateStr} — plan to be back before sunset!</p>
+
+              {/* Schedule Timeline */}
+              <div className="grid grid-cols-3 gap-1.5 text-center text-xs bg-black/40 p-2 rounded-xl border border-white/10 divide-x divide-white/10">
+                <div>
+                  <span className="text-[9px] text-slate-400 uppercase font-semibold block">Peak ETA</span>
+                  <p className="text-xs font-bold text-sky-400 font-mono mt-0.5">{arrivalStr}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] text-amber-300 uppercase font-bold block">Return Alert</span>
+                  <p className="text-xs font-black text-amber-400 font-mono mt-0.5">{returnDepartureStr}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] text-emerald-400 uppercase font-semibold block">Back at Base</span>
+                  <p className="text-xs font-bold text-emerald-300 font-mono mt-0.5">{finalBaseReturnStr}</p>
+                </div>
               </div>
+
+              <p className="text-[10px] text-orange-200/90 leading-tight">
+                🔔 The system will sound an alert at <strong className="text-white font-mono">{returnDepartureStr}</strong> ({stayHours}h after arrival) so you begin your descent and return safely before sunset!
+              </p>
             </div>
           </div>
 
@@ -256,7 +314,7 @@ export default function HikePreStartModal({
                   </span>
                 </p>
                 <p className="text-[10px] text-slate-400">
-                  Pre-download satellite & topo maps for this trail with 0 phone load needed.
+                  Pre-download outdoor, satellite & topo maps for this trail with 0 phone load needed.
                 </p>
               </div>
             </div>
